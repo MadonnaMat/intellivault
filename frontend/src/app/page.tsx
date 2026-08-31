@@ -9,7 +9,7 @@ export default async function Home() {
   return (
     <main>
       <h1>IntelliVault</h1>
-      <p style={{ color: "var(--muted)" }}>
+      <p className="subtitle">
         Gateway health — Neo4j, Postgres, Arize-Phoenix and Ollama.
       </p>
       <HealthCard initial={initial} />
