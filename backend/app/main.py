@@ -64,4 +64,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-app = create_app()
+# Run with: uvicorn app.main:create_app --factory
+# (no module-level instance, so importing this module never needs settings).
