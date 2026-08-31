@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import AliasChoices, Field, PostgresDsn, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -48,8 +49,10 @@ class Settings(BaseSettings):
     ollama_chat_model: str = "qwen3:8b"
 
     # --- CORS ---
-    # Comma-separated list of allowed frontend origins.
-    cors_origins: list[str] = Field(
+    # Comma-separated list of allowed frontend origins. NoDecode keeps
+    # pydantic-settings from JSON-parsing the env value so the validator
+    # below can split it.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default=["http://localhost:3000"],
         validation_alias=AliasChoices("cors_origins", "CORS_ORIGINS"),
     )
@@ -57,8 +60,8 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
-        """Accept a comma-separated string (from .env) as well as a real list."""
-        if isinstance(value, str) and not value.startswith("["):
+        """Accept a comma-separated string (from env) as well as a real list."""
+        if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
