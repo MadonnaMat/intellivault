@@ -23,12 +23,19 @@ export interface HealthResult {
 }
 
 export async function fetchHealth(baseUrl: string): Promise<HealthResult> {
+  let response: Response;
   try {
-    const response = await fetch(`${baseUrl}/health`, { cache: "no-store" });
-    const data = (await response.json()) as HealthResponse;
-    return { ok: response.ok, data };
+    response = await fetch(`${baseUrl}/health`, { cache: "no-store" });
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+
+  try {
+    const data = (await response.json()) as HealthResponse;
+    return { ok: response.ok, data };
+  } catch {
+    // Reachable but the body isn't the health JSON (proxy error page, 502/504).
+    return { ok: false, error: `Backend responded ${response.status} with a non-JSON body` };
   }
 }
 

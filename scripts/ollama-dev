@@ -148,6 +148,20 @@ else
     sudo systemctl stop ollama
   fi
 
+  # If something is still holding the port (a manual `ollama serve`, another
+  # tool, a systemd unit on a box where we can't stop it), don't start a
+  # second server that would just fail to bind and exit — verify models
+  # against the running one and stop here.
+  if ollama_reachable; then
+    echo "Ollama is already serving at $OLLAMA_URL and this script isn't managing it."
+    echo "Stop it first (e.g. \`scripts/ollama-dev --daemon stop\`) to run in the foreground."
+    ensure_model_pulled "$OLLAMA_EMBED_MODEL"
+    embed_smoke_test
+    ensure_model_pulled "$OLLAMA_CHAT_MODEL"
+    chat_smoke_test
+    exit 0
+  fi
+
   echo "Starting \`ollama serve\` in the foreground — Ctrl-C to stop."
   echo
 
