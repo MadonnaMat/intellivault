@@ -28,10 +28,12 @@ Project-level instructions for Claude Code working in this repository.
   (`NEO4J_PASSWORD`, `DATABASE_URL`) are required — no hardcoded defaults. The
   repo-root `.env` (gitignored) feeds native runs; compose injects env directly.
 - **`/health`** (`app/health/`) probes Postgres, Neo4j, Phoenix and Ollama
-  concurrently, each with a 3s timeout, failures captured not raised. It
-  aggregates to `ok` / `degraded` / `down` and returns HTTP 503 only when `down`
-  (a missing Ollama model is `degraded`, still 200). `/health/live` is the cheap
-  liveness route for container healthchecks.
+  concurrently, each with a 3s timeout, failures captured not raised, and the
+  whole batch bounded by an overall deadline so a stuck probe can't hang it. It
+  aggregates to `ok` / `degraded` / `down` and returns HTTP 503 only when `down`.
+  A failure of a **non-critical** dependency (`ServiceStatus.critical=False`,
+  i.e. Phoenix) or a missing Ollama model is `degraded` — still 200.
+  `/health/live` is the cheap liveness route for container healthchecks.
 - **Observability** (`app/observability.py`) is best-effort: Phoenix being down
   never blocks start-up. `settings.tracing_enabled=false` disables it (tests).
 - **Migrations** use the `yoyo` CLI (plain SQL + `.rollback.sql` in
