@@ -23,9 +23,22 @@ def test_disabled_is_noop(caplog: pytest.LogCaptureFixture) -> None:
     assert "skipping OTel/Phoenix setup" in caplog.text
 
 
-def test_unreachable_endpoint_does_not_raise() -> None:
-    # A syntactically valid but dead endpoint: register() must not propagate.
-    observability.setup(
-        FastAPI(),
-        _settings(TRACING_ENABLED="true", PHOENIX_COLLECTOR_ENDPOINT="http://127.0.0.1:1"),
-    )
+def test_register_failure_is_swallowed(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If phoenix.otel.register blows up, setup logs and carries on.
+
+    register() is patched to raise so the test never starts a real tracer
+    provider / global httpx instrumentation (which would leak into other tests).
+    """
+    import phoenix.otel
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("no collector")
+
+    monkeypatch.setattr(phoenix.otel, "register", boom)
+
+    with caplog.at_level(logging.WARNING):
+        observability.setup(FastAPI(), _settings(TRACING_ENABLED="true"))
+
+    assert "instrumentation disabled" in caplog.text

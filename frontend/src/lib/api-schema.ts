@@ -67,6 +67,11 @@ export interface components {
          */
         ServiceStatus: {
             /**
+             * Critical
+             * @default true
+             */
+            critical: boolean;
+            /**
              * Degraded
              * @default false
              */

@@ -85,8 +85,10 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
+      # Phoenix is observability-only — the gateway runs fine without it, so
+      # don't let a slow/unhealthy Phoenix block the stack coming up.
       phoenix:
-        condition: service_healthy
+        condition: service_started
     extra_hosts:
       # Ollama runs on the host (GPU), not in compose — see scripts/ollama-dev.
       - "host.docker.internal:host-gateway"

@@ -8,15 +8,22 @@ afterEach(cleanup);
 const okResponse: HealthResponse = {
   status: "ok",
   services: [
-    { name: "postgres", ok: true, degraded: false, detail: "SELECT 1", latency_ms: 12 },
-    { name: "ollama", ok: true, degraded: true, detail: "missing model", latency_ms: 8 },
+    { name: "postgres", ok: true, degraded: false, critical: true, detail: "SELECT 1", latency_ms: 12 },
+    { name: "ollama", ok: true, degraded: true, critical: true, detail: "missing model", latency_ms: 8 },
   ],
 };
 
 const downResponse: HealthResponse = {
   status: "down",
   services: [
-    { name: "postgres", ok: false, degraded: false, detail: "ConnectionError", latency_ms: 30 },
+    {
+      name: "postgres",
+      ok: false,
+      degraded: false,
+      critical: true,
+      detail: "ConnectionError",
+      latency_ms: 30,
+    },
   ],
 };
 

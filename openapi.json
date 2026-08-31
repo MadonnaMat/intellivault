@@ -31,6 +31,11 @@
       "ServiceStatus": {
         "description": "Result of probing a single downstream dependency.",
         "properties": {
+          "critical": {
+            "default": true,
+            "title": "Critical",
+            "type": "boolean"
+          },
           "degraded": {
             "default": false,
             "title": "Degraded",

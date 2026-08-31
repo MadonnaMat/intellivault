@@ -109,6 +109,34 @@ async def test_phoenix_down_and_neo4j_error() -> None:
         statuses = {s.name: s for s in await gather_health(probes)}
 
     assert statuses["phoenix"].ok is False
+    assert statuses["phoenix"].critical is False  # observability-only
     assert statuses["neo4j"].ok is False
+    assert statuses["neo4j"].critical is True
     assert "boom" in statuses["neo4j"].detail
     assert statuses["postgres"].ok is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_gather_bounds_a_stuck_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A probe that overruns the overall deadline is reported failed, not awaited."""
+    monkeypatch.setattr(checks, "OVERALL_TIMEOUT_SECONDS", 0.1)
+    respx.get(f"{OLLAMA}/api/tags").mock(
+        return_value=httpx.Response(
+            200, json={"models": [{"name": "nomic-embed-text"}, {"name": "qwen3:8b"}]}
+        )
+    )
+
+    async def stuck(_probes: object) -> tuple[str, bool]:
+        await asyncio.shield(asyncio.sleep(5))
+        return "never", False
+
+    monkeypatch.setattr(checks, "_check_phoenix", stuck)
+
+    async with httpx.AsyncClient() as client:
+        statuses = {s.name: s for s in await gather_health(_probes(client))}
+
+    assert statuses["phoenix"].ok is False
+    assert "did not return" in statuses["phoenix"].detail
+    assert statuses["postgres"].ok is True
+    assert statuses["ollama"].ok is True

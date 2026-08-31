@@ -18,6 +18,9 @@ class ServiceStatus(BaseModel):
     latency_ms: float
     # Reachable but not fully ready (e.g. a required model not pulled).
     degraded: bool = False
+    # False for dependencies the gateway can serve requests without (e.g.
+    # observability). A non-critical failure degrades health, never downs it.
+    critical: bool = True
 
 
 class HealthResponse(BaseModel):

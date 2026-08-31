@@ -36,6 +36,11 @@ def setup(app: FastAPI, settings: Settings) -> None:
             project_name=settings.service_name,
             auto_instrument=False,
             set_global_tracer_provider=False,
+            # BatchSpanProcessor exports on a background thread. The default
+            # (SimpleSpanProcessor) exports synchronously on span end, which
+            # blocks every request for the full connect timeout when Phoenix
+            # is unreachable — the opposite of "best-effort".
+            batch=True,
         )
         FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer_provider)
         HTTPXClientInstrumentor().instrument(tracer_provider=tracer_provider)

@@ -18,9 +18,9 @@ async def health_live() -> dict[str, str]:
 
 
 def _aggregate(services: list[ServiceStatus]) -> HealthState:
-    if any(not service.ok for service in services):
+    if any(not service.ok and service.critical for service in services):
         return "down"
-    if any(service.degraded for service in services):
+    if any(service.degraded or not service.ok for service in services):
         return "degraded"
     return "ok"
 
