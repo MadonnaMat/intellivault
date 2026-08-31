@@ -13,6 +13,8 @@ services:
       # Postgres 18+ images want a single mount at /var/lib/postgresql
       # (data lands in a version subdirectory) — see docker-library/postgres#37.
       - pg_data:/var/lib/postgresql
+      # Creates <POSTGRES_DB>_test on first init (see the script).
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-intellivault} -d ${POSTGRES_DB:-intellivault}"]
       interval: 5s
@@ -34,6 +36,27 @@ services:
       - neo4j_logs:/logs
     healthcheck:
       test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-intellivault} 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  # Disposable Neo4j for integration tests — Community edition allows only
+  # one database ("neo4j"), so unlike Postgres (where initdb adds a *_test
+  # database in the same instance) test isolation needs a separate
+  # instance. Ephemeral: no volume, different ports. Start with
+  # `docker compose --profile test up -d --wait neo4j-test`.
+  neo4j-test:
+    image: neo4j:5.26-community
+    profiles: ["test"]
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_TEST_PASSWORD:-testpassword}
+      NEO4J_PLUGINS: "[]"
+    ports:
+      - "${NEO4J_TEST_HTTP_PORT:-7475}:7474"
+      - "${NEO4J_TEST_BOLT_PORT:-7688}:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_TEST_PASSWORD:-testpassword} 'RETURN 1' || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 15
