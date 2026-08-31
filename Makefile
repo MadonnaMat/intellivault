@@ -1,6 +1,6 @@
-.PHONY: up down logs migrate migrate-down migrate-rollback migrate-status \
-        test-db-up test-db-down openapi gen-api-types \
-        backend-lint backend-test frontend-lint frontend-test
+.PHONY: up down logs verify migrate migrate-down migrate-rollback migrate-status \
+        test-db-up test-db-down openapi gen-api-types check-api-types \
+        backend-lint backend-test frontend-lint frontend-test lint test ci
 
 UV ?= uv
 PNPM ?= pnpm
@@ -18,13 +18,17 @@ YOYO = cd backend && $(UV) run yoyo
 # Bring up the infrastructure services (Postgres, Neo4j, Phoenix; more as
 # the stack grows). Waits until each reports healthy.
 up:
-	docker compose up -d --wait
+	./scripts/up
 
 down:
 	docker compose down
 
 logs:
 	docker compose logs -f
+
+# One-command end-to-end check: up + assert /health and the frontend.
+verify:
+	./scripts/verify
 
 # --- Migrations (yoyo CLI, explicit up/down) ---
 migrate:
@@ -59,6 +63,10 @@ openapi:
 gen-api-types: openapi
 	cd frontend && $(PNPM) gen:api
 
+# CI guard: regenerate the contract + types and fail if either is stale.
+check-api-types: gen-api-types
+	git diff --exit-code openapi.json frontend/src/lib/api-schema.ts
+
 # --- Backend ---
 backend-lint:
 	cd backend && $(UV) run ruff check .
@@ -76,3 +84,12 @@ frontend-lint:
 
 frontend-test:
 	cd frontend && $(PNPM) test
+
+# --- Aggregate ---
+lint: backend-lint frontend-lint
+
+test: backend-test frontend-test
+
+# What CI runs: contract freshness, lint, tests, and image builds.
+ci: check-api-types lint test
+	docker compose build
