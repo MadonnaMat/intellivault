@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# One command to bring IntelliVault up:
+#   1. ensure .env exists
+#   2. ensure host Ollama is running with the required models
+#   3. start every compose service and wait for health
+#   4. apply database migrations
+#
+# Re-runnable any time.
+
+cd "$(dirname "$0")/.."
+
+if [ ! -f .env ]; then
+  echo "== Creating .env from .env.example =="
+  cp .env.example .env
+fi
+
+echo "== Ensuring host Ollama + models (scripts/ollama-dev --daemon) =="
+scripts/ollama-dev --daemon
+
+echo "== Starting compose services =="
+docker compose up -d --build --wait
+
+echo "== Applying database migrations =="
+docker compose run --rm migrate
+
+echo
+echo "IntelliVault is up:"
+echo "  frontend  http://localhost:${FRONTEND_PORT:-3000}"
+echo "  backend   http://localhost:${BACKEND_PORT:-8000}/health"
+echo "  Neo4j     http://localhost:${NEO4J_HTTP_PORT:-7474}"
+echo "  Phoenix   http://localhost:${PHOENIX_PORT:-6006}"

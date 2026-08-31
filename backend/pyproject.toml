@@ -1,0 +1,52 @@
+[project]
+name = "intellivault-backend"
+version = "0.1.0"
+description = "IntelliVault FastAPI gateway"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.118",
+    "uvicorn[standard]>=0.37",
+    "pydantic-settings>=2.6",
+    "yoyo-migrations>=9.0",
+    "psycopg2-binary>=2.9",
+    "httpx>=0.28",
+    "neo4j>=5.28",
+    "asyncpg>=0.30",
+    "arize-phoenix-otel>=0.6",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-instrumentation-httpx>=0.48b0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14",
+    "mypy>=1.14",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "radon>=6.0",
+    "respx>=0.22",
+    "asyncpg-stubs>=0.31.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C901", "SIM"]
+mccabe.max-complexity = 10
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["app", "tests", "scripts"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+addopts = "--cov=app --cov-report=term-missing --cov-fail-under=85"

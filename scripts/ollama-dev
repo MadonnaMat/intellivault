@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Installs Ollama and the embedding + chat models IntelliVault talks to,
+# then makes sure it's running. Idempotent — safe to re-run any time, e.g.
+# after a fresh machine setup or to confirm the local server is still
+# healthy.
+#
+# IntelliVault runs Ollama on the *host* (not in docker-compose) so it can
+# use the GPU. Containers reach it via host.docker.internal:11434. This
+# script is the single control point for that host process — mirrors the
+# approach in ~/go-rag-lab/scripts/ollama-dev.
+#
+# Two run modes:
+#   scripts/ollama-dev          Foreground mode (default): stops the
+#                                systemd service if it's active, then runs
+#                                `ollama serve` itself so its logs stream
+#                                to this terminal and Ctrl-C stops it.
+#   scripts/ollama-dev --daemon Daemon mode: ensures the systemd-managed
+#                                service is installed, enabled, and
+#                                running, then exits — Ollama keeps
+#                                running in the background.
+#   scripts/ollama-dev --daemon stop
+#                                Stops the background systemd service.
+#
+# Installing Ollama (and stopping/starting the systemd service) needs your
+# sudo password interactively — run this script directly in your own
+# terminal, not through a tool that can't supply one.
+#
+# The systemd service runs Ollama as its own dedicated `ollama` system
+# user, which stores pulled models under *that* user's home directory —
+# entirely separate from ~/.ollama/models under whichever user runs
+# foreground mode. Daemon and foreground mode are therefore backed by two
+# independent model stores.
+
+OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+OLLAMA_EMBED_MODEL="${OLLAMA_EMBED_MODEL:-nomic-embed-text}"
+OLLAMA_CHAT_MODEL="${OLLAMA_CHAT_MODEL:-qwen3:8b}"
+
+DAEMON=false
+STOP=false
+for arg in "$@"; do
+  case "$arg" in
+    --daemon) DAEMON=true ;;
+    --foreground) DAEMON=false ;;
+    stop) STOP=true ;;
+  esac
+done
+
+if $STOP && ! $DAEMON; then
+  echo "\`stop\` only applies to daemon mode — run \`scripts/ollama-dev --daemon stop\` instead." >&2
+  exit 1
+fi
+
+command_exists() { command -v "$1" >/dev/null 2>&1; }
+
+ollama_reachable() { curl -fsS -o /dev/null "$OLLAMA_URL" 2>/dev/null; }
+
+wait_until_reachable() {
+  until ollama_reachable; do sleep 1; done
+}
+
+# Talks to whichever Ollama server is currently reachable at OLLAMA_URL.
+# Takes the model name as $1 so it can pull both the embedding and chat
+# models.
+ensure_model_pulled() {
+  model="$1"
+  echo
+  echo "== Ensuring $model is pulled =="
+  # Escape BRE metacharacters in the model name before it goes into a grep
+  # pattern — Ollama model names commonly contain '.' (e.g. "qwen3.5"),
+  # which would otherwise match any character.
+  escaped_model=$(printf '%s' "$model" | sed 's/[.[\*^$]/\\&/g')
+  if curl -fsS "$OLLAMA_URL/api/tags" | grep -q "\"name\":\"${escaped_model}\(:[^\"]*\)\?\""; then
+    echo "$model already pulled."
+  else
+    ollama pull "$model"
+  fi
+}
+
+embed_smoke_test() {
+  echo
+  echo "== Smoke test: POST $OLLAMA_URL/api/embed =="
+  curl -fsS -X POST "$OLLAMA_URL/api/embed" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"$OLLAMA_EMBED_MODEL\",\"input\":\"Hello, IntelliVault!\"}"
+  echo
+}
+
+# Minimal, non-streaming /api/chat call — just proves the chat model
+# loads and responds.
+chat_smoke_test() {
+  echo
+  echo "== Smoke test: POST $OLLAMA_URL/api/chat =="
+  curl -fsS -X POST "$OLLAMA_URL/api/chat" \
+    -H "Content-Type: application/json" \
+    -d "{\"model\":\"$OLLAMA_CHAT_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Say hello in one word.\"}],\"stream\":false}"
+  echo
+}
+
+if $STOP; then
+  command_exists systemctl || { echo "No systemd available to stop the service." >&2; exit 1; }
+  if systemctl is-active --quiet ollama; then
+    echo "Stopping the Ollama service..."
+    sudo systemctl stop ollama
+    echo "Stopped."
+  else
+    echo "Ollama service is not running."
+  fi
+  exit 0
+fi
+
+if ! command_exists ollama; then
+  echo "== Installing Ollama (needs your sudo password) =="
+  curl -fsSL https://ollama.com/install.sh | sh
+fi
+
+if $DAEMON; then
+  if ! ollama_reachable; then
+    command_exists systemctl || {
+      echo "Ollama isn't reachable at $OLLAMA_URL and no systemd is available to start it — run \`ollama serve\` yourself in another terminal and re-run this script." >&2
+      exit 1
+    }
+    echo "== Starting the Ollama service =="
+    sudo systemctl enable --now ollama
+    wait_until_reachable
+  fi
+
+  ensure_model_pulled "$OLLAMA_EMBED_MODEL"
+  embed_smoke_test
+  ensure_model_pulled "$OLLAMA_CHAT_MODEL"
+  chat_smoke_test
+
+  if command_exists nvidia-smi; then
+    echo
+    echo "== GPU memory (confirm the model loaded onto GPU, not CPU) =="
+    nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv
+  fi
+
+  echo
+  echo "Ollama setup OK — $OLLAMA_EMBED_MODEL and $OLLAMA_CHAT_MODEL are pulled and serving at $OLLAMA_URL."
+  echo "Run with no flags any time to take over the terminal and watch live Ollama logs (Ctrl-C to stop)."
+else
+  echo
+  echo "== Switching to foreground mode =="
+  if command_exists systemctl && systemctl is-active --quiet ollama; then
+    echo "Stopping the background systemd service (Ctrl-C will stop this run instead)..."
+    sudo systemctl stop ollama
+  fi
+
+  # If something is still holding the port (a manual `ollama serve`, another
+  # tool, a systemd unit on a box where we can't stop it), don't start a
+  # second server that would just fail to bind and exit — verify models
+  # against the running one and stop here.
+  if ollama_reachable; then
+    echo "Ollama is already serving at $OLLAMA_URL and this script isn't managing it."
+    echo "Stop it first (e.g. \`scripts/ollama-dev --daemon stop\`) to run in the foreground."
+    ensure_model_pulled "$OLLAMA_EMBED_MODEL"
+    embed_smoke_test
+    ensure_model_pulled "$OLLAMA_CHAT_MODEL"
+    chat_smoke_test
+    exit 0
+  fi
+
+  echo "Starting \`ollama serve\` in the foreground — Ctrl-C to stop."
+  echo
+
+  ollama serve &
+  pid=$!
+  trap 'kill "$pid" 2>/dev/null' INT TERM
+
+  wait_until_reachable
+  ensure_model_pulled "$OLLAMA_EMBED_MODEL"
+  embed_smoke_test
+  ensure_model_pulled "$OLLAMA_CHAT_MODEL"
+  chat_smoke_test
+  echo
+
+  wait "$pid"
+fi

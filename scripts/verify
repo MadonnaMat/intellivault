@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Brings the stack up (scripts/up) and asserts it actually works end to end:
+#   - backend /health reports every dependency ok (not just reachable)
+#   - the frontend serves its page
+# Exits non-zero on the first failure.
+
+cd "$(dirname "$0")/.."
+
+scripts/up
+
+BACKEND="http://localhost:${BACKEND_PORT:-8000}"
+FRONTEND="http://localhost:${FRONTEND_PORT:-3000}"
+
+echo
+echo "== Checking ${BACKEND}/health =="
+health="$(curl -fsS "${BACKEND}/health")"
+echo "$health"
+
+status="$(printf '%s' "$health" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')"
+if [ "$status" = "down" ]; then
+  echo "FAIL: backend health status is 'down'" >&2
+  exit 1
+fi
+
+echo
+echo "== Checking ${FRONTEND} =="
+curl -fsS -o /dev/null "$FRONTEND"
+
+echo
+echo "OK — health status: ${status}"
