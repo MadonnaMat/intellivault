@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from neo4j import AsyncGraphDatabase
 
+from app import observability
 from app.config import Settings, get_settings
 from app.health import health_router
 from app.health.checks import CHECK_TIMEOUT_SECONDS, HealthProbes
@@ -57,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    observability.setup(app, settings)
     app.include_router(health_router)
 
     return app

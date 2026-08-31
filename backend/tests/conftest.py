@@ -9,6 +9,7 @@ import pytest
 
 # Required config — set before any `app.config` import so Settings() validates.
 os.environ.setdefault("NEO4J_PASSWORD", "test-neo4j-pw")
+os.environ.setdefault("TRACING_ENABLED", "false")
 os.environ.setdefault(
     "DATABASE_URL", "postgresql://intellivault:intellivault@localhost:5432/intellivault_test"
 )

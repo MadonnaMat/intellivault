@@ -39,6 +39,8 @@ class Settings(BaseSettings):
 
     # --- Arize-Phoenix ---
     phoenix_collector_endpoint: str = "http://localhost:6006"
+    # Set false to skip OTel/Phoenix wiring entirely (tests, offline dev).
+    tracing_enabled: bool = True
 
     # --- Ollama (host-installed) ---
     ollama_url: str = "http://localhost:11434"

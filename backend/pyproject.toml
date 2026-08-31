@@ -12,6 +12,9 @@ dependencies = [
     "httpx>=0.28",
     "neo4j>=5.28",
     "asyncpg>=0.30",
+    "arize-phoenix-otel>=0.6",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "opentelemetry-instrumentation-httpx>=0.48b0",
 ]
 
 [dependency-groups]
