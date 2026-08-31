@@ -7,6 +7,8 @@ dependencies = [
     "fastapi>=0.118",
     "uvicorn[standard]>=0.37",
     "pydantic-settings>=2.6",
+    "yoyo-migrations>=9.0",
+    "psycopg2-binary>=2.9",
 ]
 
 [dependency-groups]

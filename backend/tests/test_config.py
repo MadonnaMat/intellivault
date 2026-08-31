@@ -6,10 +6,12 @@ import pytest
 
 from app.config import Settings
 
+_DB_URL = "postgresql://u:p@localhost:5432/intellivault_test"
+
 
 def _make(**env: str) -> Settings:
     """Build Settings from an explicit env mapping, ignoring any .env file."""
-    base = {"NEO4J_PASSWORD": "n", "POSTGRES_PASSWORD": "p"}
+    base = {"NEO4J_PASSWORD": "n", "DATABASE_URL": _DB_URL}
     return Settings(_env_file=None, **{**base, **env})  # type: ignore[arg-type]
 
 
@@ -25,13 +27,12 @@ def test_cors_origins_split_from_csv() -> None:
     assert settings.cors_origins == ["http://a.test", "http://b.test"]
 
 
-def test_secrets_are_required(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_required_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NEO4J_PASSWORD", raising=False)
-    monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     with pytest.raises(ValueError):
         Settings(_env_file=None)
 
 
-def test_postgres_dsn_uses_secret_value() -> None:
-    settings = _make(POSTGRES_PASSWORD="s3cret", POSTGRES_HOST="db")
-    assert settings.postgres_dsn == "postgresql://intellivault:s3cret@db:5432/intellivault"
+def test_database_dsn_roundtrips() -> None:
+    assert _make().database_dsn == _DB_URL

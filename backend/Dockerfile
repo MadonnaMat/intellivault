@@ -12,8 +12,10 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev
 
-# App source.
+# App source + migrations (so `yoyo` can run from inside the container).
 COPY app ./app
+COPY migrations ./migrations
+COPY yoyo.ini ./yoyo.ini
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev

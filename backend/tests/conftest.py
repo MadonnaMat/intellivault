@@ -7,9 +7,11 @@ from collections.abc import Iterator
 
 import pytest
 
-# Required secrets — set before any `app.config` import so Settings() validates.
+# Required config — set before any `app.config` import so Settings() validates.
 os.environ.setdefault("NEO4J_PASSWORD", "test-neo4j-pw")
-os.environ.setdefault("POSTGRES_PASSWORD", "test-postgres-pw")
+os.environ.setdefault(
+    "DATABASE_URL", "postgresql://intellivault:intellivault@localhost:5432/intellivault_test"
+)
 
 
 @pytest.fixture(autouse=True)

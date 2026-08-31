@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,11 +33,9 @@ class Settings(BaseSettings):
     neo4j_password: SecretStr  # required — supplied via environment / .env
 
     # --- Postgres ---
-    postgres_host: str = "localhost"
-    postgres_port: int = 5432
-    postgres_user: str = "intellivault"
-    postgres_password: SecretStr  # required — supplied via environment / .env
-    postgres_db: str = "intellivault"
+    # Full DSN (contains credentials) — required, supplied via environment /
+    # the gitignored .env. Same value is consumed by the yoyo migration CLI.
+    database_url: PostgresDsn
 
     # --- Arize-Phoenix ---
     phoenix_collector_endpoint: str = "http://localhost:6006"
@@ -63,11 +61,9 @@ class Settings(BaseSettings):
         return value
 
     @property
-    def postgres_dsn(self) -> str:
-        return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password.get_secret_value()}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-        )
+    def database_dsn(self) -> str:
+        """The application database DSN as a plain string (for asyncpg / yoyo)."""
+        return str(self.database_url)
 
 
 @lru_cache
