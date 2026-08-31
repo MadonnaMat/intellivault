@@ -1,7 +1,9 @@
-.PHONY: up down logs migrate migrate-down migrate-status \
-        test-db-up test-db-down backend-lint backend-test
+.PHONY: up down logs migrate migrate-down migrate-rollback migrate-status \
+        test-db-up test-db-down openapi gen-api-types \
+        backend-lint backend-test frontend-lint frontend-test
 
 UV ?= uv
+PNPM ?= pnpm
 
 # Load .env so DATABASE_URL / TEST_DATABASE_URL are available to recipes
 # (docker compose reads it on its own).
@@ -47,6 +49,16 @@ test-db-up:
 test-db-down:
 	docker compose --profile test down
 
+# --- API contract: FastAPI schema -> frontend TypeScript types ---
+# openapi.json (repo root) is the committed contract; api-schema.ts is
+# generated from it. Regenerate and commit both whenever a model changes;
+# CI fails if either is stale.
+openapi:
+	cd backend && PYTHONPATH=. $(UV) run python scripts/dump_openapi.py
+
+gen-api-types: openapi
+	cd frontend && $(PNPM) gen:api
+
 # --- Backend ---
 backend-lint:
 	cd backend && $(UV) run ruff check .
@@ -56,3 +68,11 @@ backend-lint:
 
 backend-test:
 	cd backend && $(UV) run pytest
+
+# --- Frontend ---
+frontend-lint:
+	cd frontend && $(PNPM) lint
+	cd frontend && $(PNPM) typecheck
+
+frontend-test:
+	cd frontend && $(PNPM) test
