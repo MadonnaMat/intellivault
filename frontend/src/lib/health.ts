@@ -1,4 +1,5 @@
 import type { components } from "./api-schema";
+import { requestJson } from "./api";
 import { publicBackendUrl, serverBackendUrl } from "./backend";
 
 // Types come straight from the FastAPI OpenAPI schema — regenerate with
@@ -19,20 +20,13 @@ export interface HealthResult {
 }
 
 export async function fetchHealth(baseUrl: string): Promise<HealthResult> {
-  let response: Response;
-  try {
-    response = await fetch(`${baseUrl}/health`, { cache: "no-store" });
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-
-  try {
-    const data = (await response.json()) as HealthResponse;
-    return { ok: response.ok, data };
-  } catch {
+  const raw = await requestJson(`${baseUrl}/health`, { cache: "no-store" });
+  if (raw.status === 0) return { ok: false, error: raw.error };
+  if (raw.body === undefined) {
     // Reachable but the body isn't the health JSON (proxy error page, 502/504).
-    return { ok: false, error: `Backend responded ${response.status} with a non-JSON body` };
+    return { ok: false, error: `Backend responded ${raw.status} with a non-JSON body` };
   }
+  return { ok: raw.ok, data: raw.body as HealthResponse };
 }
 
 /** Server-side fetch used by the page on first render. */

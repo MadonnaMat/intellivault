@@ -4,3 +4,6 @@ export const publicBackendUrl =
 
 /** Where server components reach the backend (in-network hostname under compose). */
 export const serverBackendUrl = process.env.BACKEND_URL ?? publicBackendUrl;
+
+/** The session cookie name — must match the backend's `SESSION_COOKIE`. */
+export const SESSION_COOKIE = "iv_session";

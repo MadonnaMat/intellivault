@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { SESSION_COOKIE } from "@/lib/backend";
 
-const SESSION_COOKIE = "iv_session";
 const PUBLIC_PATHS = new Set(["/login", "/register"]);
 
 /**
