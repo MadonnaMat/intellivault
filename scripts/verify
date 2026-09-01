@@ -26,7 +26,15 @@ fi
 
 echo
 echo "== Checking ${FRONTEND} =="
-curl -fsS -o /dev/null "$FRONTEND"
+# Liveness route (a plain Next handler) proves the server is up...
+curl -fsS -o /dev/null "${FRONTEND}/api/healthz"
+# ...and /login is server-rendered, so a 200 with real markup proves SSR works.
+# (`/` 307-redirects an anonymous request, which `curl -f` would accept blindly.)
+login_html="$(curl -fsS "${FRONTEND}/login")"
+printf '%s' "$login_html" | grep -q 'data-testid="login-submit"' || {
+  echo "FAIL: /login did not server-render the sign-in form" >&2
+  exit 1
+}
 
 echo
 echo "OK — health status: ${status}"
