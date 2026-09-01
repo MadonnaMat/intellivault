@@ -7,6 +7,7 @@ pops the row (single use) and verifies the browser's response against it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -19,18 +20,41 @@ CEREMONY_COOKIE = "iv_ceremony"
 _TTL = timedelta(minutes=5)
 
 
-async def store_challenge(pool: asyncpg.Pool, challenge: bytes, user_id: UUID | None) -> UUID:
-    """Persist a challenge (with the owning user for a registration) and return its id."""
-    row = await pool.fetchrow(sql("store_challenge"), challenge, user_id, datetime.now(UTC) + _TTL)
+@dataclass(frozen=True)
+class Challenge:
+    """A popped ceremony challenge plus whatever context the "begin" step stashed."""
+
+    challenge: bytes
+    user_id: UUID | None
+    email: str | None
+    display_name: str | None
+
+
+async def store_challenge(
+    pool: asyncpg.Pool,
+    challenge: bytes,
+    *,
+    user_id: UUID | None = None,
+    email: str | None = None,
+    display_name: str | None = None,
+) -> UUID:
+    """Persist a challenge and return its id. Also sweeps expired rows."""
+    await pool.execute("DELETE FROM webauthn_challenges WHERE expires_at < now()")
+    row = await pool.fetchrow(
+        sql("store_challenge"),
+        challenge,
+        user_id,
+        email,
+        display_name,
+        datetime.now(UTC) + _TTL,
+    )
     assert row is not None
     challenge_id: UUID = row["id"]
     return challenge_id
 
 
-async def pop_challenge(
-    pool: asyncpg.Pool, cookie_value: str | None
-) -> tuple[bytes, UUID | None] | None:
-    """Consume the challenge named by the cookie. Returns ``(challenge, user_id)``."""
+async def pop_challenge(pool: asyncpg.Pool, cookie_value: str | None) -> Challenge | None:
+    """Consume the challenge named by the cookie."""
     if not cookie_value:
         return None
     try:
@@ -40,7 +64,12 @@ async def pop_challenge(
     row = await pool.fetchrow(sql("pop_challenge"), challenge_id)
     if row is None:
         return None
-    return row["challenge"], row["user_id"]
+    return Challenge(
+        challenge=row["challenge"],
+        user_id=row["user_id"],
+        email=row["email"],
+        display_name=row["display_name"],
+    )
 
 
 def set_ceremony_cookie(response: Response, challenge_id: UUID, secure: bool) -> None:

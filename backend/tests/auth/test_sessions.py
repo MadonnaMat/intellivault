@@ -93,20 +93,32 @@ async def test_pop_challenge_rejects_bad_cookie() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pop_challenge_returns_challenge_and_user() -> None:
-    uid = uuid4()
-    pool = FakePool({"challenge": b"abc", "user_id": uid})
-    result = await ceremony.pop_challenge(pool, str(uuid4()))  # type: ignore[arg-type]
-    assert result == (b"abc", uid)
+async def test_pop_challenge_miss_returns_none() -> None:
+    assert await ceremony.pop_challenge(FakePool(None), str(uuid4())) is None  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
-async def test_store_challenge_passes_user_id() -> None:
+async def test_pop_challenge_returns_context() -> None:
+    uid = uuid4()
+    pool = FakePool(
+        {"challenge": b"abc", "user_id": uid, "email": "a@b.com", "display_name": "Ada"}
+    )
+    result = await ceremony.pop_challenge(pool, str(uuid4()))  # type: ignore[arg-type]
+    assert result is not None
+    assert result.challenge == b"abc"
+    assert result.user_id == uid
+    assert result.email == "a@b.com"
+    assert result.display_name == "Ada"
+
+
+@pytest.mark.asyncio
+async def test_store_challenge_sweeps_then_inserts() -> None:
     pool = FakePool({"id": _USER_ID})
-    await ceremony.store_challenge(pool, b"chal", None)  # type: ignore[arg-type]
-    (query, args) = pool.calls[0]
-    assert "INSERT INTO webauthn_challenges" in query
-    assert args[:2] == (b"chal", None)
+    await ceremony.store_challenge(pool, b"chal", email="a@b.com", display_name="Ada")  # type: ignore[arg-type]
+    sweep, insert = pool.calls[0][0], pool.calls[1][0]
+    assert "DELETE FROM webauthn_challenges WHERE expires_at < now()" in sweep
+    assert "INSERT INTO webauthn_challenges" in insert
+    assert pool.calls[1][1][:4] == (b"chal", None, "a@b.com", "Ada")
 
 
 def test_ceremony_cookie_is_scoped_to_auth() -> None:

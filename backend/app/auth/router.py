@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.auth.ceremony import (
     CEREMONY_COOKIE,
+    Challenge,
     clear_ceremony_cookie,
     pop_challenge,
     set_ceremony_cookie,
@@ -20,7 +21,6 @@ from app.auth.schemas import (
     CeremonyOptions,
     CeremonyResponse,
     CredentialSummary,
-    LoginBeginRequest,
     RegisterBeginRequest,
     SessionUser,
     UpdateAccountRequest,
@@ -54,11 +54,11 @@ CurrentUser = Annotated[SessionUser, Depends(current_user)]
 _HTTP_400 = status.HTTP_400_BAD_REQUEST
 
 
-async def _pop(pool: asyncpg.Pool, request: Request) -> tuple[bytes, UUID | None]:
-    result = await pop_challenge(pool, request.cookies.get(CEREMONY_COOKIE))
-    if result is None:
+async def _pop(pool: asyncpg.Pool, request: Request) -> Challenge:
+    challenge = await pop_challenge(pool, request.cookies.get(CEREMONY_COOKIE))
+    if challenge is None:
         raise HTTPException(_HTTP_400, "Ceremony expired or missing — start again")
-    return result
+    return challenge
 
 
 @router.post("/register/begin")
@@ -78,17 +78,17 @@ async def register_finish(
     pool: Pool,
     settings: Config,
 ) -> SessionUser:
-    challenge, user_id = await _pop(pool, request)
-    user, token = await finish_registration(pool, settings, challenge, user_id, credential)
+    ceremony = await _pop(pool, request)
+    user, token = await finish_registration(
+        pool, settings, ceremony.challenge, ceremony.email, ceremony.display_name, credential
+    )
     clear_ceremony_cookie(response, settings.session_cookie_secure)
     set_session_cookie(response, token, settings)
     return user
 
 
 @router.post("/login/begin")
-async def login_begin(
-    _req: LoginBeginRequest, response: Response, pool: Pool, settings: Config
-) -> CeremonyOptions:
+async def login_begin(response: Response, pool: Pool, settings: Config) -> CeremonyOptions:
     options, challenge_id = await begin_login(pool, settings)
     set_ceremony_cookie(response, challenge_id, settings.session_cookie_secure)
     return options
@@ -102,8 +102,8 @@ async def login_finish(
     pool: Pool,
     settings: Config,
 ) -> SessionUser:
-    challenge, _user_id = await _pop(pool, request)
-    user, token = await finish_login(pool, settings, challenge, credential)
+    ceremony = await _pop(pool, request)
+    user, token = await finish_login(pool, settings, ceremony.challenge, credential)
     clear_ceremony_cookie(response, settings.session_cookie_secure)
     set_session_cookie(response, token, settings)
     return user
@@ -134,10 +134,7 @@ async def get_credentials(user: CurrentUser, pool: Pool) -> list[CredentialSumma
 
 @router.post("/credentials/begin")
 async def add_passkey_begin(
-    user: CurrentUser,
-    response: Response,
-    pool: Pool,
-    settings: Config,
+    user: CurrentUser, response: Response, pool: Pool, settings: Config
 ) -> CeremonyOptions:
     options, challenge_id = await begin_add_passkey(pool, settings, user)
     set_ceremony_cookie(response, challenge_id, settings.session_cookie_secure)
@@ -153,8 +150,10 @@ async def add_passkey_finish(
     pool: Pool,
     settings: Config,
 ) -> CredentialSummary:
-    challenge, user_id = await _pop(pool, request)
-    summary = await finish_add_passkey(pool, settings, challenge, user_id, user, req)
+    ceremony = await _pop(pool, request)
+    summary = await finish_add_passkey(
+        pool, settings, ceremony.challenge, ceremony.user_id, user, req
+    )
     clear_ceremony_cookie(response, settings.session_cookie_secure)
     return summary
 

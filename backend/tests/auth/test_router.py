@@ -55,6 +55,14 @@ async def _truncate() -> None:
         await conn.close()
 
 
+async def _seed_user(email: str) -> None:
+    conn = await _connect()
+    try:
+        await conn.execute("INSERT INTO users (email, display_name) VALUES ($1, 'seed')", email)
+    finally:
+        await conn.close()
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     asyncio.run(_truncate())
@@ -125,6 +133,29 @@ def test_duplicate_email_is_rejected(client: TestClient) -> None:
         "/auth/register/begin", json={"email": "dup@example.com", "display_name": "Ada"}
     )
     assert again.status_code == 409
+
+
+def test_email_match_is_case_insensitive(client: TestClient) -> None:
+    assert _register(client, SoftWebauthnDevice(), "Ada@Example.com").status_code == 200
+    client.post("/auth/logout")
+    again = client.post(
+        "/auth/register/begin", json={"email": "ada@example.com", "display_name": "Ada"}
+    )
+    assert again.status_code == 409
+
+
+def test_email_claimed_between_begin_and_finish(client: TestClient) -> None:
+    device = SoftWebauthnDevice()
+    options = client.post(
+        "/auth/register/begin", json={"email": "race@example.com", "display_name": "R"}
+    )
+    attestation = device.create(options_to_soft(options.json()), ORIGIN)
+
+    # Simulate a second registration completing first: create the users row now.
+    asyncio.run(_seed_user("race@example.com"))
+
+    finished = client.post("/auth/register/finish", json=registration_to_json(attestation))
+    assert finished.status_code == 409
 
 
 def test_login_with_unknown_passkey(client: TestClient) -> None:

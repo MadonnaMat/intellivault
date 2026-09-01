@@ -10,12 +10,14 @@ straight to ``py_webauthn`` for verification.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, EmailStr, Field
 
-DisplayName = Field(min_length=1, max_length=100)
+DisplayName = Annotated[str, Field(min_length=1, max_length=100)]
+# Emails are matched case-insensitively, so normalise on the way in.
+NormalizedEmail = Annotated[EmailStr, AfterValidator(str.lower)]
 
 
 class SessionUser(BaseModel):
@@ -27,22 +29,17 @@ class SessionUser(BaseModel):
 
 
 class RegisterBeginRequest(BaseModel):
-    email: EmailStr
-    display_name: str = DisplayName
-
-
-class LoginBeginRequest(BaseModel):
-    # Reserved for a future non-discoverable flow; discoverable login ignores it.
-    email: EmailStr | None = None
+    email: NormalizedEmail
+    display_name: DisplayName
 
 
 class UpdateAccountRequest(BaseModel):
-    email: EmailStr | None = None
-    display_name: str | None = Field(default=None, min_length=1, max_length=100)
+    email: NormalizedEmail | None = None
+    display_name: DisplayName | None = None
 
 
 class AddPasskeyFinishRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    name: DisplayName
     credential: dict[str, Any]
 
 

@@ -47,9 +47,9 @@ def _pool(**kwargs: Any) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_finish_registration_without_pending_user() -> None:
+async def test_finish_registration_without_pending_ceremony() -> None:
     with pytest.raises(HTTPException) as exc:
-        await service.finish_registration(_pool(), _SETTINGS, b"c", None, {})
+        await service.finish_registration(_pool(), _SETTINGS, b"c", None, None, {})
     assert exc.value.status_code == 400
 
 
@@ -57,7 +57,7 @@ async def test_finish_registration_without_pending_user() -> None:
 async def test_finish_registration_rejects_junk_attestation() -> None:
     with pytest.raises(HTTPException) as exc:
         await service.finish_registration(
-            _pool(), _SETTINGS, b"c", _USER.id, {"not": "a credential"}
+            _pool(), _SETTINGS, b"c", "a@b.com", "Ada", {"not": "a credential"}
         )
     assert exc.value.status_code == 400
 
@@ -71,10 +71,18 @@ async def test_finish_login_rejects_malformed_response() -> None:
 
 @pytest.mark.asyncio
 async def test_delete_credential_not_found() -> None:
-    pool = _pool(fetchval=iter([2, None]).__next__)
+    pool = _pool(fetchval=iter([None, 0]).__next__)  # delete -> nothing, exists -> 0
     with pytest.raises(HTTPException) as exc:
         await service.delete_credential(pool, _USER, uuid4())
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_credential_last_one_rejected() -> None:
+    pool = _pool(fetchval=iter([None, 1]).__next__)  # delete -> nothing, exists -> 1
+    with pytest.raises(HTTPException) as exc:
+        await service.delete_credential(pool, _USER, uuid4())
+    assert exc.value.status_code == 409
 
 
 @pytest.mark.asyncio

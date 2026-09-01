@@ -6,9 +6,10 @@ stays a thin HTTP shell over these. Multi-line SQL lives in ``app/auth/sql/``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import asyncpg
 from fastapi import HTTPException, status
@@ -45,6 +46,10 @@ from app.config import Settings
 _CONFLICT = status.HTTP_409_CONFLICT
 _UNAUTHORIZED = status.HTTP_401_UNAUTHORIZED
 _BAD_REQUEST = status.HTTP_400_BAD_REQUEST
+_NOT_FOUND = status.HTTP_404_NOT_FOUND
+
+# Pool, Connection and the pool's connection proxy all expose fetchval/execute.
+_Db = asyncpg.Pool | asyncpg.Connection | asyncpg.pool.PoolConnectionProxy
 
 
 def _summary(row: asyncpg.Record) -> CredentialSummary:
@@ -55,6 +60,10 @@ def _summary(row: asyncpg.Record) -> CredentialSummary:
         last_used_at=row["last_used_at"],
         transports=list(row["transports"]),
     )
+
+
+def _session_user(row: asyncpg.Record) -> SessionUser:
+    return SessionUser(id=row["id"], email=row["email"], display_name=row["display_name"])
 
 
 async def _descriptors(pool: asyncpg.Pool, user_id: UUID) -> list[PublicKeyCredentialDescriptor]:
@@ -72,7 +81,7 @@ def _options_dict(options: Any) -> CeremonyOptions:
 def _registration_options(
     settings: Settings,
     *,
-    user_id: UUID,
+    user_handle: bytes,
     email: str,
     display_name: str,
     exclude: list[PublicKeyCredentialDescriptor],
@@ -81,7 +90,7 @@ def _registration_options(
         rp_id=settings.webauthn_rp_id,
         rp_name=settings.webauthn_rp_name,
         user_name=email,
-        user_id=user_id.bytes,
+        user_id=user_handle,
         user_display_name=display_name,
         exclude_credentials=exclude,
         authenticator_selection=AuthenticatorSelectionCriteria(
@@ -91,52 +100,9 @@ def _registration_options(
     )
 
 
-async def _user(pool: asyncpg.Pool, user_id: UUID) -> SessionUser:
-    row = await pool.fetchrow("SELECT id, email, display_name FROM users WHERE id = $1", user_id)
-    assert row is not None
-    return SessionUser(id=row["id"], email=row["email"], display_name=row["display_name"])
-
-
-# --- registration ----------------------------------------------------------
-
-
-async def begin_registration(
-    pool: asyncpg.Pool, settings: Settings, req: RegisterBeginRequest
-) -> tuple[CeremonyOptions, UUID]:
-    row = await pool.fetchrow(sql("user_with_credential_count"), req.email)
-    if row is not None and row["credentials"] > 0:
-        raise HTTPException(_CONFLICT, "An account with that email already exists")
-
-    if row is not None:
-        user_id: UUID = row["id"]
-        await pool.execute(
-            "UPDATE users SET display_name = $2 WHERE id = $1", user_id, req.display_name
-        )
-    else:
-        user_id = await pool.fetchval(
-            "INSERT INTO users (email, display_name) VALUES ($1, $2) RETURNING id",
-            req.email,
-            req.display_name,
-        )
-
-    options = _registration_options(
-        settings, user_id=user_id, email=req.email, display_name=req.display_name, exclude=[]
-    )
-    challenge_id = await store_challenge(pool, options.challenge, user_id)
-    return _options_dict(options), challenge_id
-
-
-async def _store_credential(
-    pool: asyncpg.Pool,
-    *,
-    user_id: UUID,
-    challenge: bytes,
-    settings: Settings,
-    credential: CeremonyResponse,
-    name: str,
-) -> UUID:
+def _verify_registration(settings: Settings, challenge: bytes, credential: CeremonyResponse) -> Any:
     try:
-        verified = verify_registration_response(
+        return verify_registration_response(
             credential=credential,
             expected_challenge=challenge,
             expected_rp_id=settings.webauthn_rp_id,
@@ -146,9 +112,13 @@ async def _store_credential(
     except (WebAuthnException, KeyError, ValueError) as exc:
         raise HTTPException(_BAD_REQUEST, "Passkey registration failed") from exc
 
+
+async def _insert_credential(
+    db: _Db, *, user_id: UUID, verified: Any, credential: CeremonyResponse, name: str
+) -> UUID:
     transports = credential.get("response", {}).get("transports") or []
     try:
-        new_id: UUID = await pool.fetchval(
+        new_id: UUID = await db.fetchval(
             sql("insert_credential"),
             user_id,
             verified.credential_id,
@@ -163,24 +133,56 @@ async def _store_credential(
     return new_id
 
 
+# --- registration ----------------------------------------------------------
+
+
+async def begin_registration(
+    pool: asyncpg.Pool, settings: Settings, req: RegisterBeginRequest
+) -> tuple[CeremonyOptions, UUID]:
+    taken = await pool.fetchval("SELECT 1 FROM users WHERE lower(email) = $1", req.email)
+    if taken is not None:
+        raise HTTPException(_CONFLICT, "An account with that email already exists")
+
+    # No users row yet — it is created only on a verified finish, so an abandoned
+    # ceremony leaves nothing to hijack. A throwaway handle satisfies the spec.
+    options = _registration_options(
+        settings,
+        user_handle=uuid4().bytes,
+        email=req.email,
+        display_name=req.display_name,
+        exclude=[],
+    )
+    challenge_id = await store_challenge(
+        pool, options.challenge, email=req.email, display_name=req.display_name
+    )
+    return _options_dict(options), challenge_id
+
+
 async def finish_registration(
     pool: asyncpg.Pool,
     settings: Settings,
     challenge: bytes,
-    user_id: UUID | None,
+    email: str | None,
+    display_name: str | None,
     credential: CeremonyResponse,
 ) -> tuple[SessionUser, str]:
-    if user_id is None:
+    if email is None or display_name is None:
         raise HTTPException(_BAD_REQUEST, "No registration in progress")
-    await _store_credential(
-        pool,
-        user_id=user_id,
-        challenge=challenge,
-        settings=settings,
-        credential=credential,
-        name="Passkey",
-    )
-    user = await _user(pool, user_id)
+    verified = _verify_registration(settings, challenge, credential)
+
+    async with pool.acquire() as conn, conn.transaction():
+        user_row = await conn.fetchrow(sql("insert_user"), email, display_name)
+        if user_row is None:
+            raise HTTPException(_CONFLICT, "An account with that email already exists")
+        await _insert_credential(
+            conn,
+            user_id=user_row["id"],
+            verified=verified,
+            credential=credential,
+            name="Passkey",
+        )
+
+    user = _session_user(user_row)
     token = await issue_session(pool, user.id, settings)
     return user, token
 
@@ -193,7 +195,7 @@ async def begin_login(pool: asyncpg.Pool, settings: Settings) -> tuple[CeremonyO
         rp_id=settings.webauthn_rp_id,
         user_verification=UserVerificationRequirement.PREFERRED,
     )
-    challenge_id = await store_challenge(pool, options.challenge, None)
+    challenge_id = await store_challenge(pool, options.challenge)
     return _options_dict(options), challenge_id
 
 
@@ -222,13 +224,16 @@ async def finish_login(
     except (WebAuthnException, KeyError, ValueError) as exc:
         raise HTTPException(_UNAUTHORIZED, "Passkey verification failed") from exc
 
-    await pool.execute(
-        "UPDATE webauthn_credentials SET sign_count = $1, last_used_at = now() WHERE id = $2",
-        verified.new_sign_count,
-        row["id"],
-    )
     user = SessionUser(id=row["user_id"], email=row["email"], display_name=row["display_name"])
-    token = await issue_session(pool, user.id, settings)
+    # The sign-count bump and the new session touch different tables.
+    _, token = await asyncio.gather(
+        pool.execute(
+            "UPDATE webauthn_credentials SET sign_count = $1, last_used_at = now() WHERE id = $2",
+            verified.new_sign_count,
+            row["id"],
+        ),
+        issue_session(pool, user.id, settings),
+    )
     return user, token
 
 
@@ -240,12 +245,12 @@ async def begin_add_passkey(
 ) -> tuple[CeremonyOptions, UUID]:
     options = _registration_options(
         settings,
-        user_id=user.id,
+        user_handle=user.id.bytes,
         email=user.email,
         display_name=user.display_name,
         exclude=await _descriptors(pool, user.id),
     )
-    challenge_id = await store_challenge(pool, options.challenge, user.id)
+    challenge_id = await store_challenge(pool, options.challenge, user_id=user.id)
     return _options_dict(options), challenge_id
 
 
@@ -259,13 +264,9 @@ async def finish_add_passkey(
 ) -> CredentialSummary:
     if user_id != user.id:
         raise HTTPException(_BAD_REQUEST, "No passkey registration in progress")
-    new_id = await _store_credential(
-        pool,
-        user_id=user.id,
-        challenge=challenge,
-        settings=settings,
-        credential=req.credential,
-        name=req.name,
+    verified = _verify_registration(settings, challenge, req.credential)
+    new_id = await _insert_credential(
+        pool, user_id=user.id, verified=verified, credential=req.credential, name=req.name
     )
     row = await pool.fetchrow(sql("credential_summary_by_id"), new_id)
     assert row is not None
@@ -275,14 +276,14 @@ async def finish_add_passkey(
 async def update_account(
     pool: asyncpg.Pool, user: SessionUser, req: UpdateAccountRequest
 ) -> SessionUser:
-    email = req.email or user.email
-    display_name = req.display_name or user.display_name
+    email = req.email if req.email is not None else user.email
+    display_name = req.display_name if req.display_name is not None else user.display_name
     try:
         row = await pool.fetchrow(sql("update_account"), user.id, email, display_name)
     except asyncpg.UniqueViolationError as exc:
         raise HTTPException(_CONFLICT, "That email is already in use") from exc
     assert row is not None
-    return SessionUser(id=row["id"], email=row["email"], display_name=row["display_name"])
+    return _session_user(row)
 
 
 async def list_credentials(pool: asyncpg.Pool, user: SessionUser) -> list[CredentialSummary]:
@@ -291,15 +292,10 @@ async def list_credentials(pool: asyncpg.Pool, user: SessionUser) -> list[Creden
 
 
 async def delete_credential(pool: asyncpg.Pool, user: SessionUser, credential_id: UUID) -> None:
-    total = await pool.fetchval(
-        "SELECT count(*) FROM webauthn_credentials WHERE user_id = $1", user.id
-    )
-    if total <= 1:
+    deleted = await pool.fetchval(sql("delete_credential"), credential_id, user.id)
+    if deleted is not None:
+        return
+    exists = await pool.fetchval(sql("credential_exists"), credential_id, user.id)
+    if exists:
         raise HTTPException(_CONFLICT, "You must keep at least one passkey")
-    deleted = await pool.fetchval(
-        "DELETE FROM webauthn_credentials WHERE id = $1 AND user_id = $2 RETURNING id",
-        credential_id,
-        user.id,
-    )
-    if deleted is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Passkey not found")
+    raise HTTPException(_NOT_FOUND, "Passkey not found")
