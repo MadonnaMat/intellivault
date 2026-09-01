@@ -1,14 +1,17 @@
 """End-to-end auth-flow tests driven by a simulated authenticator.
 
-Runs against the real test database (``DATABASE_URL`` -> ``intellivault_test``,
-set in conftest) and self-skips when it is unreachable.
+Runs against the dedicated test database (``TEST_DATABASE_URL``, default
+``intellivault_test``) and self-skips when it is unreachable.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import shutil
+import subprocess
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import asyncpg
@@ -23,7 +26,9 @@ from tests.helpers.webauthn import (
     registration_to_json,
 )
 
+# conftest forces this to the dedicated test database.
 TEST_DSN = os.environ["DATABASE_URL"]
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 ORIGIN = "http://localhost:3000"
 _TABLES = "users, sessions, webauthn_credentials, webauthn_challenges"
 
@@ -45,6 +50,20 @@ def _reachable() -> bool:
 
 
 pytestmark = pytest.mark.skipif(not _reachable(), reason="test database not reachable")
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _schema() -> None:
+    """Ensure the migrated schema exists (this DB is shared with test_migrations)."""
+    yoyo = shutil.which("yoyo")
+    if yoyo is None:
+        pytest.skip("yoyo CLI not available")
+    subprocess.run(
+        [yoyo, "apply", "--batch", "--database", TEST_DSN, "migrations"],
+        cwd=BACKEND_DIR,
+        check=True,
+        capture_output=True,
+    )
 
 
 async def _truncate() -> None:

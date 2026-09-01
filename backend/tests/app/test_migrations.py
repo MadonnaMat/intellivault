@@ -51,7 +51,9 @@ pytestmark = pytest.mark.skipif(not _reachable(), reason="TEST_DATABASE_URL not 
 def clean_db() -> Iterator[None]:
     _yoyo("rollback", "--all")
     yield
-    _yoyo("rollback", "--all")
+    # Leave the schema in place — other suites (e.g. the auth e2e tests) share
+    # this database and run after this one.
+    _yoyo("apply")
 
 
 def test_apply_then_rollback(clean_db: None) -> None:
