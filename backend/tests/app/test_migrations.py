@@ -19,7 +19,7 @@ TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql://intellivault:intellivault@localhost:5432/intellivault_test",
 )
-BACKEND_DIR = Path(__file__).resolve().parents[1]
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 YOYO = shutil.which("yoyo")
 
 
