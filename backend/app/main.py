@@ -35,6 +35,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     http_client = httpx.AsyncClient(timeout=CHECK_TIMEOUT_SECONDS)
 
+    # The pool is shared: health probes read it, and request handlers reach it
+    # via the app.db.get_pool dependency.
+    app.state.pg_pool = pg_pool
     app.state.health_probes = HealthProbes(
         settings=settings,
         pg_pool=pg_pool,
