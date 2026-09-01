@@ -60,6 +60,7 @@ def test_apply_then_rollback(clean_db: None) -> None:
     _yoyo("apply")
     applied = _yoyo("list").stdout
     assert "\nA " in applied and "0001.initial-schema" in applied
+    assert "0002.auth-webauthn" in applied
 
     _yoyo("rollback", "--all")
     assert _yoyo("list").stdout.count("\nA ") == 0
