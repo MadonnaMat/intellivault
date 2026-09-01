@@ -109,24 +109,6 @@
         "title": "HealthResponse",
         "type": "object"
       },
-      "LoginBeginRequest": {
-        "properties": {
-          "email": {
-            "anyOf": [
-              {
-                "format": "email",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email"
-          }
-        },
-        "title": "LoginBeginRequest",
-        "type": "object"
-      },
       "RegisterBeginRequest": {
         "properties": {
           "display_name": {
@@ -419,16 +401,6 @@
     "/auth/login/begin": {
       "post": {
         "operationId": "login_begin_auth_login_begin_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LoginBeginRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "content": {
@@ -441,16 +413,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "Login Begin",
