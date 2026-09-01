@@ -43,6 +43,12 @@ def test_webauthn_overrides_from_env() -> None:
     assert settings.session_cookie_samesite == "none"
 
 
+def test_db_pool_bounds() -> None:
+    assert _make().db_pool_min_size == 0
+    assert _make().db_pool_max_size == 20
+    assert _make(DB_POOL_MAX_SIZE="50").db_pool_max_size == 50
+
+
 def test_blank_cookie_domain_is_none() -> None:
     assert _make().session_cookie_domain is None
     assert _make(SESSION_COOKIE_DOMAIN="").session_cookie_domain is None

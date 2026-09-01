@@ -37,12 +37,13 @@ class FakePool:
 
 
 @pytest.mark.asyncio
-async def test_issue_session_stores_only_a_hash() -> None:
+async def test_issue_session_sweeps_then_stores_only_a_hash() -> None:
     pool = FakePool()
     token = await sessions.issue_session(pool, _USER_ID, _settings())  # type: ignore[arg-type]
 
     assert len(token) > 20
-    (query, args) = pool.calls[0]
+    assert "DELETE FROM sessions WHERE expires_at < now()" in pool.calls[0][0]
+    (query, args) = pool.calls[1]
     assert "INSERT INTO sessions" in query
     assert args[0] == _USER_ID
     assert args[1] == sessions._digest(token)

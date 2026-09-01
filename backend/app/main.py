@@ -23,9 +23,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open shared clients for downstream services, and close them on shutdown."""
     settings: Settings = app.state.settings
 
-    # min_size=0: don't open a connection at startup — an unreachable Postgres
-    # should surface as postgres=down in /health, not crash the process.
-    pg_pool = await asyncpg.create_pool(settings.database_dsn, min_size=0, max_size=5)
+    # min_size=0 (default): don't open a connection at startup — an unreachable
+    # Postgres should surface as postgres=down in /health, not crash the process.
+    pg_pool = await asyncpg.create_pool(
+        settings.database_dsn,
+        min_size=settings.db_pool_min_size,
+        max_size=settings.db_pool_max_size,
+    )
     neo4j_driver = AsyncGraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),

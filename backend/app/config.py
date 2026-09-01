@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Full DSN (contains credentials) — required, supplied via environment /
     # the gitignored .env. Same value is consumed by the yoyo migration CLI.
     database_url: PostgresDsn
+    # asyncpg pool bounds. min_size stays 0 so an unreachable Postgres surfaces
+    # as postgres=down in /health rather than crashing start-up. max_size covers
+    # health probes + every auth request handler.
+    db_pool_min_size: int = 0
+    db_pool_max_size: int = 20
 
     # --- Arize-Phoenix ---
     phoenix_collector_endpoint: str = "http://localhost:6006"

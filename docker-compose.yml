@@ -94,6 +94,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-intellivault}:${POSTGRES_PASSWORD:-intellivault}@postgres:5432/${POSTGRES_DB:-intellivault}
+      DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-20}
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-intellivault}
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006

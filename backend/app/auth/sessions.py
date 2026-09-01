@@ -33,6 +33,7 @@ async def issue_session(pool: asyncpg.Pool, user_id: UUID, settings: Settings) -
     """Create a session for ``user_id`` and return its raw token."""
     token = secrets.token_urlsafe(_TOKEN_BYTES)
     expires_at = datetime.now(UTC) + timedelta(hours=settings.session_ttl_hours)
+    await pool.execute("DELETE FROM sessions WHERE expires_at < now()")
     await pool.execute(
         "INSERT INTO sessions (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
         user_id,
