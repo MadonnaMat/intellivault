@@ -57,6 +57,18 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("cors_origins", "CORS_ORIGINS"),
     )
 
+    # --- Auth / WebAuthn ---
+    # The Relying Party id (an effective domain, no scheme/port) and the exact
+    # origin the browser ceremony runs on. Dev defaults target the Next.js app
+    # on localhost; real deploys override both.
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "IntelliVault"
+    webauthn_origin: str = "http://localhost:3000"
+    # Session lifetime and whether the session cookie carries the Secure flag
+    # (must be False for plain-http localhost, True everywhere else).
+    session_ttl_hours: int = 720
+    session_cookie_secure: bool = False
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
