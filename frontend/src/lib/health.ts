@@ -1,4 +1,5 @@
 import type { components } from "./api-schema";
+import { publicBackendUrl, serverBackendUrl } from "./backend";
 
 // Types come straight from the FastAPI OpenAPI schema — regenerate with
 // `make gen-api-types` (or `pnpm gen:api`) after changing a backend model.
@@ -6,12 +7,7 @@ export type HealthResponse = components["schemas"]["HealthResponse"];
 export type ServiceStatus = components["schemas"]["ServiceStatus"];
 export type HealthState = HealthResponse["status"];
 
-/** Where the browser reaches the backend (client-side refresh). */
-export const publicBackendUrl =
-  process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
-
-/** Where the server component reaches the backend (in-network in compose). */
-const serverBackendUrl = process.env.BACKEND_URL ?? publicBackendUrl;
+export { publicBackendUrl };
 
 export interface HealthResult {
   /** True when the backend answered with a non-error status. */
