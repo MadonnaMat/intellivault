@@ -17,14 +17,10 @@ describe("middleware", () => {
     expect(location("/account")).toBe("http://localhost:3000/login");
   });
 
-  it("lets anonymous visitors reach the auth pages", () => {
+  it("lets anyone reach the auth pages (the pages redirect once the session checks out)", () => {
     expect(location("/login")).toBeNull();
     expect(location("/register")).toBeNull();
-  });
-
-  it("bounces signed-in visitors off the auth pages", () => {
-    expect(location("/login", { session: true })).toBe("http://localhost:3000/");
-    expect(location("/register", { session: true })).toBe("http://localhost:3000/");
+    expect(location("/login", { session: true })).toBeNull();
   });
 
   it("lets signed-in visitors through to protected routes", () => {

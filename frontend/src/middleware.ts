@@ -4,9 +4,10 @@ const SESSION_COOKIE = "iv_session";
 const PUBLIC_PATHS = new Set(["/login", "/register"]);
 
 /**
- * Cookie-presence gate. Real session validation happens server-side in each
- * protected page (which calls the backend `/auth/me`); this only keeps signed-out
- * visitors on the auth pages and signed-in ones off them.
+ * Cheap gate: bounce visitors with no session cookie off the protected routes.
+ * The reverse direction (sending signed-in users away from /login and /register)
+ * is handled in those pages after they validate the session server-side — doing
+ * it here on cookie presence alone would loop when the cookie is stale.
  */
 export function middleware(request: NextRequest) {
   const hasSession = request.cookies.has(SESSION_COOKIE);
@@ -14,9 +15,6 @@ export function middleware(request: NextRequest) {
 
   if (!hasSession && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
-  }
-  if (hasSession && isPublic) {
-    return NextResponse.redirect(new URL("/", request.url));
   }
   return NextResponse.next();
 }

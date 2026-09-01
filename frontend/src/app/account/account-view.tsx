@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, List, Modal, Typography } from "antd";
+import { Alert, Button, Card, Form, Input, List, Modal, Space, Typography } from "antd";
 import {
   addPasskey,
   removeCredential,
@@ -11,6 +11,7 @@ import {
   type CredentialSummary,
   type SessionUser,
 } from "@/lib/auth";
+import { LogoutButton } from "../logout-button";
 
 interface ProfileValues {
   email: string;
@@ -70,9 +71,10 @@ export function AccountView({
   return (
     <main>
       <h1>Account &amp; passkeys</h1>
-      <p>
+      <Space style={{ marginBottom: 16 }}>
         <Link href="/">Back to home</Link>
-      </p>
+        <LogoutButton />
+      </Space>
 
       {error && (
         <Alert
