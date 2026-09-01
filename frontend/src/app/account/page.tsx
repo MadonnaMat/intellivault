@@ -7,9 +7,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Account — IntelliVault" };
 
 export default async function AccountPage() {
-  const user = await currentUser();
+  const [user, credentials] = await Promise.all([currentUser(), currentUserCredentials()]);
   if (!user) redirect("/login");
-
-  const credentials = (await currentUserCredentials()) ?? [];
-  return <AccountView user={user} credentials={credentials} />;
+  return <AccountView user={user} credentials={credentials ?? []} />;
 }

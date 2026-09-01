@@ -11,6 +11,7 @@ import {
   type CredentialSummary,
   type SessionUser,
 } from "@/lib/auth";
+import { useAsyncAction } from "@/lib/use-async-action";
 import { LogoutButton } from "../logout-button";
 
 interface ProfileValues {
@@ -32,47 +33,42 @@ export function AccountView({
   credentials: CredentialSummary[];
 }) {
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [savingProfile, setSavingProfile] = useState(false);
+  const { loading, error, run } = useAsyncAction();
   const [addOpen, setAddOpen] = useState(false);
   const [passkeyName, setPasskeyName] = useState("");
-  const [addingPasskey, setAddingPasskey] = useState(false);
 
-  async function onSaveProfile(values: ProfileValues) {
-    setSavingProfile(true);
-    setError(null);
-    const result = await updateAccount({
-      email: values.email,
-      displayName: values.display_name,
-    });
-    setSavingProfile(false);
-    if (result.ok) router.refresh();
-    else setError(result.error ?? "Could not save your profile");
+  const refresh = () => router.refresh();
+
+  function onSaveProfile(values: ProfileValues) {
+    return run(
+      () => updateAccount({ email: values.email, displayName: values.display_name }),
+      { fallback: "Could not save your profile", onSuccess: refresh },
+    );
   }
 
   async function onAddPasskey() {
-    setAddingPasskey(true);
-    setError(null);
-    const result = await addPasskey(passkeyName.trim() || "Passkey");
-    setAddingPasskey(false);
+    await run(() => addPasskey(passkeyName.trim() || "Passkey"), {
+      fallback: "Could not add the passkey",
+      onSuccess: refresh,
+    });
     setAddOpen(false);
     setPasskeyName("");
-    if (result.ok) router.refresh();
-    else setError(result.error ?? "Could not add the passkey");
   }
 
-  async function onRemove(id: string) {
-    setError(null);
-    const result = await removeCredential(id);
-    if (result.ok) router.refresh();
-    else setError(result.error ?? "Could not remove the passkey");
+  function onRemove(id: string) {
+    return run(() => removeCredential(id), {
+      fallback: "Could not remove the passkey",
+      onSuccess: refresh,
+    });
   }
 
   return (
     <main>
       <h1>Account &amp; passkeys</h1>
       <Space style={{ marginBottom: 16 }}>
-        <Link href="/">Back to home</Link>
+        <Link href="/" data-testid="home-link">
+          Back to home
+        </Link>
         <LogoutButton />
       </Space>
 
@@ -110,7 +106,7 @@ export function AccountView({
           <Button
             type="primary"
             htmlType="submit"
-            loading={savingProfile}
+            loading={loading}
             data-testid="account-save"
           >
             Save
@@ -137,6 +133,7 @@ export function AccountView({
                   key="remove"
                   danger
                   size="small"
+                  loading={loading}
                   disabled={credentials.length <= 1}
                   data-testid={`credential-${cred.id}-remove`}
                   onClick={() => onRemove(cred.id)}
@@ -155,7 +152,7 @@ export function AccountView({
         open={addOpen}
         title="Name this passkey"
         okText="Continue"
-        okButtonProps={{ loading: addingPasskey }}
+        okButtonProps={{ loading }}
         onOk={onAddPasskey}
         onCancel={() => setAddOpen(false)}
       >
