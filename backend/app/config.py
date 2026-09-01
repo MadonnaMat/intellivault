@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AliasChoices, Field, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Full DSN (contains credentials) — required, supplied via environment /
     # the gitignored .env. Same value is consumed by the yoyo migration CLI.
     database_url: PostgresDsn
+    # asyncpg pool bounds. min_size stays 0 so an unreachable Postgres surfaces
+    # as postgres=down in /health rather than crashing start-up. max_size covers
+    # health probes + every auth request handler.
+    db_pool_min_size: int = 0
+    db_pool_max_size: int = 20
 
     # --- Arize-Phoenix ---
     phoenix_collector_endpoint: str = "http://localhost:6006"
@@ -56,6 +61,28 @@ class Settings(BaseSettings):
         default=["http://localhost:3000"],
         validation_alias=AliasChoices("cors_origins", "CORS_ORIGINS"),
     )
+
+    # --- Auth / WebAuthn ---
+    # The Relying Party id (an effective domain, no scheme/port) and the exact
+    # origin the browser ceremony runs on. Dev defaults target the Next.js app
+    # on localhost; real deploys override both.
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "IntelliVault"
+    webauthn_origin: str = "http://localhost:3000"
+    # Session lifetime and cookie flags. Defaults suit plain-http localhost where
+    # the frontend and backend share a hostname. A split-domain deployment sets
+    # secure=true, samesite=none, and domain=.example.com so the browser sends
+    # the cookie to both the app and the API host.
+    session_ttl_hours: int = 720
+    session_cookie_secure: bool = False
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    session_cookie_domain: str | None = None
+
+    @field_validator("session_cookie_domain", mode="before")
+    @classmethod
+    def _blank_domain_is_none(cls, value: object) -> object:
+        """Treat an empty env value the same as unset."""
+        return value or None
 
     @field_validator("cors_origins", mode="before")
     @classmethod

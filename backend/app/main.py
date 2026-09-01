@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from neo4j import AsyncGraphDatabase
 
 from app import observability
+from app.auth import auth_router
 from app.config import Settings, get_settings
 from app.health import health_router
 from app.health.checks import CHECK_TIMEOUT_SECONDS, HealthProbes
@@ -22,9 +23,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Open shared clients for downstream services, and close them on shutdown."""
     settings: Settings = app.state.settings
 
-    # min_size=0: don't open a connection at startup — an unreachable Postgres
-    # should surface as postgres=down in /health, not crash the process.
-    pg_pool = await asyncpg.create_pool(settings.database_dsn, min_size=0, max_size=5)
+    # min_size=0 (default): don't open a connection at startup — an unreachable
+    # Postgres should surface as postgres=down in /health, not crash the process.
+    pg_pool = await asyncpg.create_pool(
+        settings.database_dsn,
+        min_size=settings.db_pool_min_size,
+        max_size=settings.db_pool_max_size,
+    )
     neo4j_driver = AsyncGraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
@@ -35,6 +40,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     http_client = httpx.AsyncClient(timeout=CHECK_TIMEOUT_SECONDS)
 
+    # The pool is shared: health probes read it, and request handlers reach it
+    # via the app.db.get_pool dependency.
+    app.state.pg_pool = pg_pool
     app.state.health_probes = HealthProbes(
         settings=settings,
         pg_pool=pg_pool,
@@ -66,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     observability.setup(app, settings)
     app.include_router(health_router)
+    app.include_router(auth_router)
 
     return app
 

@@ -19,7 +19,7 @@ TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
     "postgresql://intellivault:intellivault@localhost:5432/intellivault_test",
 )
-BACKEND_DIR = Path(__file__).resolve().parents[1]
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 YOYO = shutil.which("yoyo")
 
 
@@ -51,7 +51,9 @@ pytestmark = pytest.mark.skipif(not _reachable(), reason="TEST_DATABASE_URL not 
 def clean_db() -> Iterator[None]:
     _yoyo("rollback", "--all")
     yield
-    _yoyo("rollback", "--all")
+    # Leave the schema in place — other suites (e.g. the auth e2e tests) share
+    # this database and run after this one.
+    _yoyo("apply")
 
 
 def test_apply_then_rollback(clean_db: None) -> None:
@@ -60,6 +62,8 @@ def test_apply_then_rollback(clean_db: None) -> None:
     _yoyo("apply")
     applied = _yoyo("list").stdout
     assert "\nA " in applied and "0001.initial-schema" in applied
+    assert "0002.auth-webauthn" in applied
+    assert "0003.registration-challenge-and-indexes" in applied
 
     _yoyo("rollback", "--all")
     assert _yoyo("list").stdout.count("\nA ") == 0

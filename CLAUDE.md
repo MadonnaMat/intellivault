@@ -36,24 +36,53 @@ Project-level instructions for Claude Code working in this repository.
   `/health/live` is the cheap liveness route for container healthchecks.
 - **Observability** (`app/observability.py`) is best-effort: Phoenix being down
   never blocks start-up. `settings.tracing_enabled=false` disables it (tests).
+- **Auth** (`app/auth/`) is passwordless WebAuthn passkeys (`py_webauthn`).
+  Registration does **not** create a `users` row until a verified `finish`
+  (inside a transaction, `INSERT ... ON CONFLICT`); the pending email/display
+  name ride on the challenge. Emails are stored lowercased and matched
+  case-insensitively (`lower(email)` unique index). Registration is
+  first-come-first-served — there is no email-ownership check, so add email
+  verification before treating an email as an identity claim.
+  Ceremony challenges are stored in Postgres and consumed once, keyed by the
+  short-lived `iv_ceremony` cookie; `store_challenge` also sweeps expired rows.
+  A successful ceremony issues an opaque server-side session — random token,
+  only its SHA-256 stored in `sessions`, carried in the `HttpOnly` `iv_session`
+  cookie. All auth cookies get their Secure/SameSite/Domain flags from config
+  (`app/auth/cookies.py`) — a split-domain deploy sets `SESSION_COOKIE_SAMESITE=none`
+  + `SESSION_COOKIE_DOMAIN=.example.com`. `current_user` (a FastAPI dependency)
+  resolves the session to a `SessionUser`; `sessions.user_id` is the ownerId
+  every tenant-scoped query keys off. `/auth/me` clears a cookie that no longer
+  resolves. Multi-line SQL lives in `app/auth/sql/*.sql` (embedded via
+  `app.auth.statements.sql`). Frontend: `@simplewebauthn/browser` drives the
+  browser API, `lib/api.ts` is the session-cookie fetch primitive, `middleware.ts`
+  gates on cookie presence for signed-out visitors, and each protected page —
+  plus `/login` and `/register` — re-checks `/auth/me` server-side (`lib/session.ts`).
 - **Migrations** use the `yoyo` CLI (plain SQL + `.rollback.sql` in
   `backend/migrations/`). Nothing runs them automatically —
   `make migrate` / `docker compose run --rm migrate`.
+- **SQL that doesn't fit on one line** lives in its own `.sql` file next to the
+  code that runs it and is embedded from there (see `app/auth/sql/` +
+  `app/auth/statements.py`), never inlined as a multi-line string literal.
 - **Frontend API types** are generated from the FastAPI OpenAPI schema:
   `backend/scripts/dump_openapi.py` -> committed `openapi.json` ->
   `frontend/src/lib/api-schema.ts`. Never hand-edit either.
 - **Tests use separate databases.** Postgres: `<db>_test` in the same instance
   (created by `docker/initdb`). Neo4j: a disposable `neo4j-test` service under the
-  `test` compose profile. Never point tests at the app databases.
+  `test` compose profile. Never point unit/integration tests at the app databases.
+- **`frontend/e2e/`** is the Playwright browser suite (`make e2e`, its own CI
+  job) — it drives the real frontend + backend + Postgres, using a CDP virtual
+  authenticator for the passkey ceremonies. It resets the app database per test,
+  so it needs a throwaway stack. `scripts/verify` stays the fast smoke check.
 - Frontend components use **Ant Design**; all antd usage stays in client
   components (the RSC page is plain HTML). Interactive elements carry a
-  `data-testid`; tests query by testid.
+  `data-testid`; vitest and Playwright both query by testid.
 
 ## Commands
 
 | Command | Does |
 |---------|------|
-| `make up` / `make verify` | bring the stack up / + assert health |
+| `make up` / `make verify` | bring the stack up / + smoke-check health + SSR |
+| `make e2e` | Playwright browser suite against the full stack |
 | `make lint` / `make test` | both sides |
 | `make backend-lint` | ruff check + format, mypy --strict, radon |
 | `make backend-test` | pytest (coverage gate 85%) |

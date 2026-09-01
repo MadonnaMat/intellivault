@@ -10,6 +10,16 @@ main {
   padding: 3rem 1.25rem;
 }
 
+/* Full-viewport centering for the login / register cards. */
+main.auth-shell {
+  max-width: none;
+  padding: 1.25rem;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .subtitle {
   color: #888;
   margin-top: 0;

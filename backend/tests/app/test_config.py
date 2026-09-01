@@ -22,6 +22,39 @@ def test_defaults() -> None:
     assert settings.cors_origins == ["http://localhost:3000"]
 
 
+def test_webauthn_defaults() -> None:
+    settings = _make()
+    assert settings.webauthn_rp_id == "localhost"
+    assert settings.webauthn_origin == "http://localhost:3000"
+    assert settings.session_ttl_hours == 720
+    assert settings.session_cookie_secure is False
+
+
+def test_webauthn_overrides_from_env() -> None:
+    settings = _make(
+        WEBAUTHN_RP_ID="example.com",
+        WEBAUTHN_ORIGIN="https://app.example.com",
+        SESSION_COOKIE_SECURE="true",
+        SESSION_COOKIE_SAMESITE="none",
+    )
+    assert settings.webauthn_rp_id == "example.com"
+    assert settings.webauthn_origin == "https://app.example.com"
+    assert settings.session_cookie_secure is True
+    assert settings.session_cookie_samesite == "none"
+
+
+def test_db_pool_bounds() -> None:
+    assert _make().db_pool_min_size == 0
+    assert _make().db_pool_max_size == 20
+    assert _make(DB_POOL_MAX_SIZE="50").db_pool_max_size == 50
+
+
+def test_blank_cookie_domain_is_none() -> None:
+    assert _make().session_cookie_domain is None
+    assert _make(SESSION_COOKIE_DOMAIN="").session_cookie_domain is None
+    assert _make(SESSION_COOKIE_DOMAIN=".example.com").session_cookie_domain == ".example.com"
+
+
 def test_cors_origins_split_from_csv() -> None:
     settings = _make(CORS_ORIGINS="http://a.test, http://b.test")
     assert settings.cors_origins == ["http://a.test", "http://b.test"]
