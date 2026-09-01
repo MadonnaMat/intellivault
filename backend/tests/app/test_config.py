@@ -35,10 +35,18 @@ def test_webauthn_overrides_from_env() -> None:
         WEBAUTHN_RP_ID="example.com",
         WEBAUTHN_ORIGIN="https://app.example.com",
         SESSION_COOKIE_SECURE="true",
+        SESSION_COOKIE_SAMESITE="none",
     )
     assert settings.webauthn_rp_id == "example.com"
     assert settings.webauthn_origin == "https://app.example.com"
     assert settings.session_cookie_secure is True
+    assert settings.session_cookie_samesite == "none"
+
+
+def test_blank_cookie_domain_is_none() -> None:
+    assert _make().session_cookie_domain is None
+    assert _make(SESSION_COOKIE_DOMAIN="").session_cookie_domain is None
+    assert _make(SESSION_COOKIE_DOMAIN=".example.com").session_cookie_domain == ".example.com"
 
 
 def test_cors_origins_split_from_csv() -> None:

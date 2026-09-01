@@ -16,6 +16,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import Response
 
+from app.auth.cookies import clear_cookie, set_cookie
 from app.auth.schemas import SessionUser
 from app.auth.statements import sql
 from app.config import Settings
@@ -54,22 +55,15 @@ async def revoke_session(pool: asyncpg.Pool, token: str) -> None:
 
 
 def set_session_cookie(response: Response, token: str, settings: Settings) -> None:
-    response.set_cookie(
+    set_cookie(
+        response,
         SESSION_COOKIE,
         token,
+        settings=settings,
         max_age=settings.session_ttl_hours * 3600,
-        httponly=True,
-        secure=settings.session_cookie_secure,
-        samesite="lax",
         path="/",
     )
 
 
 def clear_session_cookie(response: Response, settings: Settings) -> None:
-    response.delete_cookie(
-        SESSION_COOKIE,
-        path="/",
-        httponly=True,
-        secure=settings.session_cookie_secure,
-        samesite="lax",
-    )
+    clear_cookie(response, SESSION_COOKIE, settings=settings, path="/")

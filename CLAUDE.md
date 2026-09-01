@@ -37,16 +37,26 @@ Project-level instructions for Claude Code working in this repository.
 - **Observability** (`app/observability.py`) is best-effort: Phoenix being down
   never blocks start-up. `settings.tracing_enabled=false` disables it (tests).
 - **Auth** (`app/auth/`) is passwordless WebAuthn passkeys (`py_webauthn`).
+  Registration does **not** create a `users` row until a verified `finish`
+  (inside a transaction, `INSERT ... ON CONFLICT`); the pending email/display
+  name ride on the challenge. Emails are stored lowercased and matched
+  case-insensitively (`lower(email)` unique index). Registration is
+  first-come-first-served — there is no email-ownership check, so add email
+  verification before treating an email as an identity claim.
   Ceremony challenges are stored in Postgres and consumed once, keyed by the
-  short-lived `iv_ceremony` cookie. A successful ceremony issues an opaque
-  server-side session — random token, only its SHA-256 stored in `sessions`,
-  carried in the `HttpOnly` `iv_session` cookie. `current_user` (a FastAPI
-  dependency) resolves it to a `SessionUser`; `sessions.user_id` is the ownerId
-  every tenant-scoped query keys off. Multi-line SQL lives in `app/auth/sql/*.sql`
-  and is embedded via `app.auth.statements.sql`. Frontend: `@simplewebauthn/browser`
-  drives the browser API, `lib/api.ts` is the session-cookie fetch wrapper,
-  `middleware.ts` gates routes on cookie presence, and each protected page
-  re-checks `/auth/me` server-side.
+  short-lived `iv_ceremony` cookie; `store_challenge` also sweeps expired rows.
+  A successful ceremony issues an opaque server-side session — random token,
+  only its SHA-256 stored in `sessions`, carried in the `HttpOnly` `iv_session`
+  cookie. All auth cookies get their Secure/SameSite/Domain flags from config
+  (`app/auth/cookies.py`) — a split-domain deploy sets `SESSION_COOKIE_SAMESITE=none`
+  + `SESSION_COOKIE_DOMAIN=.example.com`. `current_user` (a FastAPI dependency)
+  resolves the session to a `SessionUser`; `sessions.user_id` is the ownerId
+  every tenant-scoped query keys off. `/auth/me` clears a cookie that no longer
+  resolves. Multi-line SQL lives in `app/auth/sql/*.sql` (embedded via
+  `app.auth.statements.sql`). Frontend: `@simplewebauthn/browser` drives the
+  browser API, `lib/api.ts` is the session-cookie fetch primitive, `middleware.ts`
+  gates on cookie presence for signed-out visitors, and each protected page —
+  plus `/login` and `/register` — re-checks `/auth/me` server-side (`lib/session.ts`).
 - **Migrations** use the `yoyo` CLI (plain SQL + `.rollback.sql` in
   `backend/migrations/`). Nothing runs them automatically —
   `make migrate` / `docker compose run --rm migrate`.

@@ -14,7 +14,9 @@ from uuid import UUID
 import asyncpg
 from fastapi import Response
 
+from app.auth.cookies import clear_cookie, set_cookie
 from app.auth.statements import sql
+from app.config import Settings
 
 CEREMONY_COOKIE = "iv_ceremony"
 _TTL = timedelta(minutes=5)
@@ -72,19 +74,16 @@ async def pop_challenge(pool: asyncpg.Pool, cookie_value: str | None) -> Challen
     )
 
 
-def set_ceremony_cookie(response: Response, challenge_id: UUID, secure: bool) -> None:
-    response.set_cookie(
+def set_ceremony_cookie(response: Response, challenge_id: UUID, settings: Settings) -> None:
+    set_cookie(
+        response,
         CEREMONY_COOKIE,
         str(challenge_id),
+        settings=settings,
         max_age=int(_TTL.total_seconds()),
-        httponly=True,
-        secure=secure,
-        samesite="lax",
         path="/auth",
     )
 
 
-def clear_ceremony_cookie(response: Response, secure: bool) -> None:
-    response.delete_cookie(
-        CEREMONY_COOKIE, path="/auth", httponly=True, secure=secure, samesite="lax"
-    )
+def clear_ceremony_cookie(response: Response, settings: Settings) -> None:
+    clear_cookie(response, CEREMONY_COOKIE, settings=settings, path="/auth")

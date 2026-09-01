@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import AliasChoices, Field, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -64,10 +64,20 @@ class Settings(BaseSettings):
     webauthn_rp_id: str = "localhost"
     webauthn_rp_name: str = "IntelliVault"
     webauthn_origin: str = "http://localhost:3000"
-    # Session lifetime and whether the session cookie carries the Secure flag
-    # (must be False for plain-http localhost, True everywhere else).
+    # Session lifetime and cookie flags. Defaults suit plain-http localhost where
+    # the frontend and backend share a hostname. A split-domain deployment sets
+    # secure=true, samesite=none, and domain=.example.com so the browser sends
+    # the cookie to both the app and the API host.
     session_ttl_hours: int = 720
     session_cookie_secure: bool = False
+    session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    session_cookie_domain: str | None = None
+
+    @field_validator("session_cookie_domain", mode="before")
+    @classmethod
+    def _blank_domain_is_none(cls, value: object) -> object:
+        """Treat an empty env value the same as unset."""
+        return value or None
 
     @field_validator("cors_origins", mode="before")
     @classmethod

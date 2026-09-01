@@ -15,7 +15,7 @@ from app.auth.ceremony import (
     pop_challenge,
     set_ceremony_cookie,
 )
-from app.auth.dependencies import current_user
+from app.auth.dependencies import current_user, current_user_optional
 from app.auth.schemas import (
     AddPasskeyFinishRequest,
     CeremonyOptions,
@@ -66,7 +66,7 @@ async def register_begin(
     req: RegisterBeginRequest, response: Response, pool: Pool, settings: Config
 ) -> CeremonyOptions:
     options, challenge_id = await begin_registration(pool, settings, req)
-    set_ceremony_cookie(response, challenge_id, settings.session_cookie_secure)
+    set_ceremony_cookie(response, challenge_id, settings)
     return options
 
 
@@ -82,7 +82,7 @@ async def register_finish(
     user, token = await finish_registration(
         pool, settings, ceremony.challenge, ceremony.email, ceremony.display_name, credential
     )
-    clear_ceremony_cookie(response, settings.session_cookie_secure)
+    clear_ceremony_cookie(response, settings)
     set_session_cookie(response, token, settings)
     return user
 
@@ -90,7 +90,7 @@ async def register_finish(
 @router.post("/login/begin")
 async def login_begin(response: Response, pool: Pool, settings: Config) -> CeremonyOptions:
     options, challenge_id = await begin_login(pool, settings)
-    set_ceremony_cookie(response, challenge_id, settings.session_cookie_secure)
+    set_ceremony_cookie(response, challenge_id, settings)
     return options
 
 
@@ -104,7 +104,7 @@ async def login_finish(
 ) -> SessionUser:
     ceremony = await _pop(pool, request)
     user, token = await finish_login(pool, settings, ceremony.challenge, credential)
-    clear_ceremony_cookie(response, settings.session_cookie_secure)
+    clear_ceremony_cookie(response, settings)
     set_session_cookie(response, token, settings)
     return user
 
@@ -118,7 +118,16 @@ async def logout(request: Request, response: Response, pool: Pool, settings: Con
 
 
 @router.get("/me")
-async def me(user: CurrentUser) -> SessionUser:
+async def me(
+    response: Response,
+    settings: Config,
+    user: Annotated[SessionUser | None, Depends(current_user_optional)],
+) -> SessionUser:
+    if user is None:
+        # Proactively drop a cookie that no longer resolves so the browser stops
+        # replaying it on every page load.
+        clear_session_cookie(response, settings)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
     return user
 
 
@@ -137,7 +146,7 @@ async def add_passkey_begin(
     user: CurrentUser, response: Response, pool: Pool, settings: Config
 ) -> CeremonyOptions:
     options, challenge_id = await begin_add_passkey(pool, settings, user)
-    set_ceremony_cookie(response, challenge_id, settings.session_cookie_secure)
+    set_ceremony_cookie(response, challenge_id, settings)
     return options
 
 
@@ -154,7 +163,7 @@ async def add_passkey_finish(
     summary = await finish_add_passkey(
         pool, settings, ceremony.challenge, ceremony.user_id, user, req
     )
-    clear_ceremony_cookie(response, settings.session_cookie_secure)
+    clear_ceremony_cookie(response, settings)
     return summary
 
 

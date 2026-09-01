@@ -123,8 +123,22 @@ async def test_store_challenge_sweeps_then_inserts() -> None:
 
 def test_ceremony_cookie_is_scoped_to_auth() -> None:
     response = Response()
-    ceremony.set_ceremony_cookie(response, UUID(int=1), secure=False)
+    ceremony.set_ceremony_cookie(response, UUID(int=1), _settings())
     header = response.headers["set-cookie"]
     assert "Path=/auth" in header
     assert "HttpOnly" in header
     assert "Max-Age=300" in header
+
+
+def test_cookies_honour_samesite_and_domain_config() -> None:
+    settings = _settings(
+        SESSION_COOKIE_SECURE="true",
+        SESSION_COOKIE_SAMESITE="none",
+        SESSION_COOKIE_DOMAIN=".example.com",
+    )
+    response = Response()
+    sessions.set_session_cookie(response, "tok", settings)
+    header = response.headers["set-cookie"]
+    assert "SameSite=none" in header
+    assert "Domain=.example.com" in header
+    assert "Secure" in header
