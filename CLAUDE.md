@@ -36,9 +36,23 @@ Project-level instructions for Claude Code working in this repository.
   `/health/live` is the cheap liveness route for container healthchecks.
 - **Observability** (`app/observability.py`) is best-effort: Phoenix being down
   never blocks start-up. `settings.tracing_enabled=false` disables it (tests).
+- **Auth** (`app/auth/`) is passwordless WebAuthn passkeys (`py_webauthn`).
+  Ceremony challenges are stored in Postgres and consumed once, keyed by the
+  short-lived `iv_ceremony` cookie. A successful ceremony issues an opaque
+  server-side session — random token, only its SHA-256 stored in `sessions`,
+  carried in the `HttpOnly` `iv_session` cookie. `current_user` (a FastAPI
+  dependency) resolves it to a `SessionUser`; `sessions.user_id` is the ownerId
+  every tenant-scoped query keys off. Multi-line SQL lives in `app/auth/sql/*.sql`
+  and is embedded via `app.auth.statements.sql`. Frontend: `@simplewebauthn/browser`
+  drives the browser API, `lib/api.ts` is the session-cookie fetch wrapper,
+  `middleware.ts` gates routes on cookie presence, and each protected page
+  re-checks `/auth/me` server-side.
 - **Migrations** use the `yoyo` CLI (plain SQL + `.rollback.sql` in
   `backend/migrations/`). Nothing runs them automatically —
   `make migrate` / `docker compose run --rm migrate`.
+- **SQL that doesn't fit on one line** lives in its own `.sql` file next to the
+  code that runs it and is embedded from there (see `app/auth/sql/` +
+  `app/auth/statements.py`), never inlined as a multi-line string literal.
 - **Frontend API types** are generated from the FastAPI OpenAPI schema:
   `backend/scripts/dump_openapi.py` -> committed `openapi.json` ->
   `frontend/src/lib/api-schema.ts`. Never hand-edit either.
