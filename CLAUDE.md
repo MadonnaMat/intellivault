@@ -68,16 +68,21 @@ Project-level instructions for Claude Code working in this repository.
   `frontend/src/lib/api-schema.ts`. Never hand-edit either.
 - **Tests use separate databases.** Postgres: `<db>_test` in the same instance
   (created by `docker/initdb`). Neo4j: a disposable `neo4j-test` service under the
-  `test` compose profile. Never point tests at the app databases.
+  `test` compose profile. Never point unit/integration tests at the app databases.
+- **`frontend/e2e/`** is the Playwright browser suite (`make e2e`, its own CI
+  job) — it drives the real frontend + backend + Postgres, using a CDP virtual
+  authenticator for the passkey ceremonies. It resets the app database per test,
+  so it needs a throwaway stack. `scripts/verify` stays the fast smoke check.
 - Frontend components use **Ant Design**; all antd usage stays in client
   components (the RSC page is plain HTML). Interactive elements carry a
-  `data-testid`; tests query by testid.
+  `data-testid`; vitest and Playwright both query by testid.
 
 ## Commands
 
 | Command | Does |
 |---------|------|
-| `make up` / `make verify` | bring the stack up / + assert health |
+| `make up` / `make verify` | bring the stack up / + smoke-check health + SSR |
+| `make e2e` | Playwright browser suite against the full stack |
 | `make lint` / `make test` | both sides |
 | `make backend-lint` | ruff check + format, mypy --strict, radon |
 | `make backend-test` | pytest (coverage gate 85%) |

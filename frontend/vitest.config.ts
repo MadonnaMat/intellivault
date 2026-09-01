@@ -15,5 +15,7 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // e2e/ is Playwright's (`pnpm e2e`), not vitest's.
+    exclude: ["node_modules", "e2e"],
   },
 });

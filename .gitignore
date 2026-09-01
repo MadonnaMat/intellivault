@@ -17,6 +17,12 @@ coverage/
 *.tsbuildinfo
 next-env.d.ts
 
+# --- Playwright e2e ---
+test-results/
+playwright-report/
+blob-report/
+.playwright-mcp/
+
 # --- Environment ---
 .env
 .env.local

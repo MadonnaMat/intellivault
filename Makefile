@@ -1,4 +1,4 @@
-.PHONY: up down logs verify migrate migrate-down migrate-rollback migrate-status \
+.PHONY: up down logs verify e2e migrate migrate-down migrate-rollback migrate-status \
         test-db-up test-db-down openapi gen-api-types check-api-types \
         backend-lint backend-test frontend-lint frontend-test lint test ci
 
@@ -26,9 +26,19 @@ down:
 logs:
 	docker compose logs -f
 
-# One-command end-to-end check: up + assert /health and the frontend.
+# One-command smoke check: up + assert /health and that /login server-renders.
 verify:
 	./scripts/verify
+
+# Full browser end-to-end suite (Playwright). Brings the stack up, then drives
+# registration / login / account flows against the real frontend + backend.
+# NOTE: truncates the app database.
+e2e:
+	docker compose up -d --wait postgres neo4j phoenix
+	docker compose run --rm migrate
+	docker compose up -d --wait backend frontend
+	cd frontend && $(PNPM) exec playwright install --with-deps chromium
+	cd frontend && $(PNPM) e2e
 
 # --- Migrations (yoyo CLI, explicit up/down) ---
 migrate:
