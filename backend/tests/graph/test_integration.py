@@ -237,3 +237,36 @@ async def test_cascade_demote_is_symmetric(graph_driver: AsyncDriver) -> None:
     )
 
     assert (await service.list_graph(graph_driver, _BOB)).entities == []
+
+
+async def test_cascade_promotes_a_chain_longer_than_the_old_25_hop_cap(
+    graph_driver: AsyncDriver,
+) -> None:
+    ids = await _chain(graph_driver, _ALICE, *[f"n{i}" for i in range(30)])
+
+    result = await service.change_visibility(
+        graph_driver, _ALICE, ids[0], VisibilityChange(visibility="public", cascade=True)
+    )
+
+    assert len(result.affected_ids) == 30
+    assert len((await service.list_graph(graph_driver, _BOB)).entities) == 30
+
+
+async def test_cascade_reports_only_entities_that_actually_changed(
+    graph_driver: AsyncDriver,
+) -> None:
+    already_public = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="pub", kind="n", visibility="public")
+    )
+    private = await service.create_entity(graph_driver, _ALICE, EntityInput(name="priv", kind="n"))
+    await service.create_relationship(
+        graph_driver,
+        _ALICE,
+        RelationshipInput(from_id=already_public.id, to_id=private.id, kind="r"),
+    )
+
+    result = await service.change_visibility(
+        graph_driver, _ALICE, str(private.id), VisibilityChange(visibility="public", cascade=True)
+    )
+
+    assert result.affected_ids == [private.id]  # already_public was not "changed"

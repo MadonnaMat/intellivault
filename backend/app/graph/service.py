@@ -1,10 +1,10 @@
 """Cypher behind the graph routes.
 
-One private helper, :func:`_run`, is the sole ``driver.session()`` call site.
-Everything else loads a statement from ``app/graph/cypher/`` and maps the
-returned records to pydantic models. Each statement here is a single compound
-Cypher query, which Neo4j runs atomically — so auto-commit ``session.run`` is
-enough and there are no explicit transaction wrappers.
+Single-statement operations go through :func:`_run` (one auto-commit
+``session.run``, atomic on the server). The visibility cascade spans several
+statements — a BFS over the caller-owned sub-graph plus two writes — so it runs
+in one explicit write transaction (:func:`_cascade_visibility`) and is
+all-or-nothing.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import HTTPException, status
-from neo4j import AsyncDriver, Query, Record
+from neo4j import AsyncDriver, AsyncManagedTransaction, Query, Record
 
 from app.graph.schemas import (
     Entity,
@@ -140,27 +140,54 @@ async def list_graph(driver: AsyncDriver, owner_id: str) -> GraphView:
     )
 
 
+async def _tx_run(tx: AsyncManagedTransaction, name: str, /, **params: Any) -> Any:
+    """``tx.run`` for a named ``cypher/`` file.
+
+    Unlike ``session.run``, ``tx.run`` rejects a ``Query`` wrapper and only types
+    its query as ``LiteralString`` — hence the plain string plus the ignore.
+    """
+    return await tx.run(cypher(name), **params)
+
+
+async def _owned_component(tx: AsyncManagedTransaction, owner_id: str, start_id: str) -> list[str]:
+    """BFS out from ``start_id`` over caller-owned nodes and edges only."""
+    seen = {start_id}
+    frontier = {start_id}
+    while frontier:
+        result = await _tx_run(tx, "owned_neighbours", owner_id=owner_id, ids=list(frontier))
+        found = {record["id"] async for record in result} - seen
+        seen |= found
+        frontier = found
+    return list(seen)
+
+
+async def _cascade_tx(
+    tx: AsyncManagedTransaction, owner_id: str, entity_id: str, visibility: str
+) -> list[str]:
+    owned = await (
+        await _tx_run(tx, "owned_entity_exists", id=entity_id, owner_id=owner_id)
+    ).values()
+    if not owned:
+        raise HTTPException(_NOT_FOUND, "Entity not found")
+
+    ids = await _owned_component(tx, owner_id, entity_id)
+    entity_result = await _tx_run(
+        tx, "flip_entities", ids=ids, owner_id=owner_id, visibility=visibility
+    )
+    changed_row = await entity_result.single()
+    await _tx_run(tx, "flip_relationships", ids=ids, owner_id=owner_id, visibility=visibility)
+    changed: list[str] = list(changed_row["changed"]) if changed_row else []
+    return changed
+
+
 async def _cascade_visibility(
     driver: AsyncDriver, owner_id: str, entity_id: str, visibility: str
-) -> list[Any]:
-    node_rows = await _run(
-        driver,
-        cypher("promote_subgraph_nodes"),
-        id=entity_id,
-        owner_id=owner_id,
-        visibility=visibility,
-    )
-    affected: list[Any] = node_rows[0]["affected_ids"] if node_rows else []
-    if not affected:
-        raise HTTPException(_NOT_FOUND, "Entity not found")
-    await _run(
-        driver,
-        cypher("promote_subgraph_edges"),
-        ids=affected,
-        owner_id=owner_id,
-        visibility=visibility,
-    )
-    return affected
+) -> list[str]:
+    async with driver.session(database=_DB) as session:
+        result: list[str] = await session.execute_write(
+            _cascade_tx, owner_id, entity_id, visibility
+        )
+        return result
 
 
 async def change_visibility(
@@ -179,4 +206,5 @@ async def change_visibility(
     )
     if not rows:
         raise HTTPException(_NOT_FOUND, "Entity not found")
-    return VisibilityChangeResult(affected_ids=[rows[0]["id"]])
+    row = rows[0]
+    return VisibilityChangeResult(affected_ids=[row["id"]] if row["changed"] else [])

@@ -66,10 +66,16 @@ class FakeRecord:
 
 class _FakeResult:
     def __init__(self, rows: list[dict[str, object]]) -> None:
-        self._records = [FakeRecord(row) for row in rows]
+        self._rows = rows
 
     def __aiter__(self) -> _FakeRows:
-        return _FakeRows(self._records)
+        return _FakeRows([FakeRecord(row) for row in self._rows])
+
+    async def values(self, *_keys: str) -> list[list[object]]:
+        return [list(row.values()) for row in self._rows]
+
+    async def single(self) -> FakeRecord | None:
+        return FakeRecord(self._rows[0]) if self._rows else None
 
 
 class _FakeRows:
@@ -86,6 +92,20 @@ class _FakeRows:
             raise StopAsyncIteration from None
 
 
+def _next_result(driver: FakeNeo4jDriver, query: object, params: dict[str, object]) -> _FakeResult:
+    rows = driver._responses.pop(0) if driver._responses else []
+    driver.calls.append((str(getattr(query, "text", query)), params))
+    return _FakeResult(rows)
+
+
+class _FakeTx:
+    def __init__(self, driver: FakeNeo4jDriver) -> None:
+        self._driver = driver
+
+    async def run(self, query: object, **params: object) -> _FakeResult:
+        return _next_result(self._driver, query, params)
+
+
 class _FakeSession:
     def __init__(self, driver: FakeNeo4jDriver) -> None:
         self._driver = driver
@@ -97,13 +117,14 @@ class _FakeSession:
         return False
 
     async def run(self, query: object, **params: object) -> _FakeResult:
-        rows = self._driver._responses.pop(0) if self._driver._responses else []
-        self._driver.calls.append((str(getattr(query, "text", query)), params))
-        return _FakeResult(rows)
+        return _next_result(self._driver, query, params)
+
+    async def execute_write(self, fn: object, *args: object, **kwargs: object) -> object:
+        return await fn(_FakeTx(self._driver), *args, **kwargs)  # type: ignore[operator]
 
 
 class FakeNeo4jDriver:
-    """A scripted async driver: each ``session.run`` returns the next queued row list."""
+    """A scripted async driver: each ``run`` (session or tx) returns the next queued row list."""
 
     def __init__(self, *responses: list[dict[str, object]]) -> None:
         self._responses: list[list[dict[str, object]]] = list(responses)

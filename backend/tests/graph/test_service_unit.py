@@ -146,9 +146,9 @@ async def test_delete_relationship_ok_and_404() -> None:
     assert exc.value.status_code == 404
 
 
-async def test_change_visibility_single_flip() -> None:
+async def test_change_visibility_single_flip_reports_the_change() -> None:
     node_id = str(uuid4())
-    driver = FakeNeo4jDriver([{"id": node_id}])
+    driver = FakeNeo4jDriver([{"id": node_id, "changed": True}])
 
     result = await service.change_visibility(
         cast(AsyncDriver, driver), _OWNER, node_id, VisibilityChange(visibility="public")
@@ -156,6 +156,16 @@ async def test_change_visibility_single_flip() -> None:
 
     assert [str(i) for i in result.affected_ids] == [node_id]
     assert driver.calls[0][1] == {"id": node_id, "owner_id": _OWNER, "visibility": "public"}
+
+
+async def test_change_visibility_single_flip_noop_reports_nothing() -> None:
+    driver = FakeNeo4jDriver([{"id": str(uuid4()), "changed": False}])
+
+    result = await service.change_visibility(
+        cast(AsyncDriver, driver), _OWNER, str(uuid4()), VisibilityChange(visibility="public")
+    )
+
+    assert result.affected_ids == []
 
 
 async def test_change_visibility_single_flip_404() -> None:
@@ -169,23 +179,32 @@ async def test_change_visibility_single_flip_404() -> None:
     assert exc.value.status_code == 404
 
 
-async def test_change_visibility_cascade_flips_nodes_then_edges() -> None:
-    ids = [str(uuid4()), str(uuid4())]
-    driver = FakeNeo4jDriver([{"affected_ids": ids}], [{"updated": 1}])
+async def test_change_visibility_cascade_bfs_then_flips_only_changed() -> None:
+    start, neighbour = str(uuid4()), str(uuid4())
+    driver = FakeNeo4jDriver(
+        [{"id": start}],  # owned_entity_exists
+        [{"id": neighbour}],  # owned_neighbours of {start}
+        [],  # owned_neighbours of {neighbour} — BFS stops
+        [{"changed": [start, neighbour]}],  # flip_entities
+        [{"changed": 1}],  # flip_relationships
+    )
 
     result = await service.change_visibility(
         cast(AsyncDriver, driver),
         _OWNER,
-        ids[0],
+        start,
         VisibilityChange(visibility="public", cascade=True),
     )
 
-    assert [str(i) for i in result.affected_ids] == ids
-    assert driver.calls[1][1] == {"ids": ids, "owner_id": _OWNER, "visibility": "public"}
+    assert {str(i) for i in result.affected_ids} == {start, neighbour}
+    # calls: 0 owned_entity_exists, 1-2 owned_neighbours, 3 flip_entities, 4 flip_relationships
+    flip_ids = cast(list[str], driver.calls[3][1]["ids"])
+    assert set(flip_ids) == {start, neighbour}
+    assert driver.calls[4][1]["ids"] == flip_ids
 
 
-async def test_change_visibility_cascade_404_when_start_missing() -> None:
-    driver = FakeNeo4jDriver([])  # start node didn't match
+async def test_change_visibility_cascade_404_when_start_not_owned() -> None:
+    driver = FakeNeo4jDriver([])  # owned_entity_exists empty
 
     with pytest.raises(HTTPException) as exc:
         await service.change_visibility(
