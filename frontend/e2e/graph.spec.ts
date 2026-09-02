@@ -50,6 +50,21 @@ test("cascade-promotes a connected private sub-graph to public", async ({ page }
   await expect(row(page, "Jane Doe")).toContainText("public");
 });
 
+test("an owner can delete an entity and its relationships", async ({ page }) => {
+  await signUpAndOpenGraph(page, "del@example.com", "Del");
+  await page.getByTestId("load-sample-graph").click();
+  await expect(row(page, "Jane Doe")).toBeVisible();
+  const edgesBefore = await page.getByTestId("relationships-card").getByRole("row").count();
+
+  await row(page, "Jane Doe").getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("tooltip").getByRole("button", { name: "Delete" }).click();
+
+  await expect(row(page, "Jane Doe")).toHaveCount(0);
+  await expect
+    .poll(() => page.getByTestId("relationships-card").getByRole("row").count())
+    .toBeLessThan(edgesBefore);
+});
+
 test("a second user sees only the public entities", async ({ browser }) => {
   const ownerContext = await browser.newContext();
   const owner = await ownerContext.newPage();

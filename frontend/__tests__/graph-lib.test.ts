@@ -6,7 +6,8 @@ vi.mock("@/lib/api", () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args
 import {
   createEntity,
   createRelationship,
-  fetchGraph,
+  deleteEntity,
+  deleteRelationship,
   seedSampleGraph,
   setEntityVisibility,
 } from "@/lib/graph";
@@ -19,11 +20,6 @@ beforeEach(() => {
 });
 
 describe("graph lib wrappers", () => {
-  it("fetchGraph GETs /graph as an authed call", async () => {
-    await fetchGraph();
-    expect(apiFetch).toHaveBeenCalledWith("/graph", undefined, AUTHED);
-  });
-
   it("createEntity POSTs the input body", async () => {
     const input = { name: "Acme", kind: "org", visibility: "public", attributes: {} } as const;
     await createEntity(input);
@@ -63,6 +59,17 @@ describe("graph lib wrappers", () => {
     expect(apiFetch).toHaveBeenCalledWith(
       "/graph/relationships",
       { method: "POST", body: JSON.stringify(input) },
+      AUTHED,
+    );
+  });
+
+  it("deleteEntity / deleteRelationship DELETE the resource", async () => {
+    await deleteEntity("e1");
+    expect(apiFetch).toHaveBeenCalledWith("/graph/entities/e1", { method: "DELETE" }, AUTHED);
+    await deleteRelationship("r1");
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/graph/relationships/r1",
+      { method: "DELETE" },
       AUTHED,
     );
   });

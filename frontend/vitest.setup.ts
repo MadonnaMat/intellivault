@@ -1,6 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 
+// antd popovers (Popconfirm, Tooltip, Select dropdown) observe element size;
+// jsdom has no ResizeObserver.
+window.ResizeObserver = class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 // antd's Table measures the scrollbar via getComputedStyle(el, pseudoElt),
 // which jsdom logs as "Not implemented". Drop the pseudo-element arg.
 const realGetComputedStyle = window.getComputedStyle.bind(window);

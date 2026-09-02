@@ -15,10 +15,6 @@ export type Visibility = GraphEntity["visibility"];
 
 const AUTHED = { authed: true } as const;
 
-export function fetchGraph(): Promise<ApiResult<GraphView>> {
-  return apiFetch<GraphView>("/graph", undefined, AUTHED);
-}
-
 export function createEntity(input: EntityInput): Promise<ApiResult<GraphEntity>> {
   return apiFetch<GraphEntity>(
     "/graph/entities",
@@ -46,6 +42,14 @@ export function setEntityVisibility(
     { method: "PATCH", body: JSON.stringify(change) },
     AUTHED,
   );
+}
+
+export function deleteEntity(id: string): Promise<ApiResult<void>> {
+  return apiFetch<void>(`/graph/entities/${id}`, { method: "DELETE" }, AUTHED);
+}
+
+export function deleteRelationship(id: string): Promise<ApiResult<void>> {
+  return apiFetch<void>(`/graph/relationships/${id}`, { method: "DELETE" }, AUTHED);
 }
 
 /** A tiny fixed graph, injected one real API call at a time — a "does it work?" button. */

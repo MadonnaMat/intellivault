@@ -2,14 +2,23 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GraphEntity } from "@/lib/graph";
 
-const { refresh, createEntity, createRelationship, setEntityVisibility, seedSampleGraph } =
-  vi.hoisted(() => ({
-    refresh: vi.fn(),
-    createEntity: vi.fn(),
-    createRelationship: vi.fn(),
-    setEntityVisibility: vi.fn(),
-    seedSampleGraph: vi.fn(),
-  }));
+const {
+  refresh,
+  createEntity,
+  createRelationship,
+  setEntityVisibility,
+  seedSampleGraph,
+  deleteEntity,
+  deleteRelationship,
+} = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  createEntity: vi.fn(),
+  createRelationship: vi.fn(),
+  setEntityVisibility: vi.fn(),
+  seedSampleGraph: vi.fn(),
+  deleteEntity: vi.fn(),
+  deleteRelationship: vi.fn(),
+}));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh }) }));
 vi.mock("@/lib/graph", () => ({
@@ -17,6 +26,8 @@ vi.mock("@/lib/graph", () => ({
   createRelationship,
   setEntityVisibility,
   seedSampleGraph,
+  deleteEntity,
+  deleteRelationship,
 }));
 vi.mock("@/app/graph/graph-diagram", () => ({
   GraphDiagram: ({
@@ -156,14 +167,27 @@ describe("GraphView", () => {
     );
   });
 
-  it("loads the sample graph", async () => {
+  it("loads the sample graph, but only when the graph is empty", async () => {
     seedSampleGraph.mockResolvedValue({ ok: true, status: 200 });
-    render(<GraphView user={user} initial={empty} />);
+    const { rerender } = render(<GraphView user={user} initial={empty} />);
 
     fireEvent.click(screen.getByTestId("load-sample-graph"));
-
     await waitFor(() => expect(seedSampleGraph).toHaveBeenCalled());
-    await waitFor(() => expect(refresh).toHaveBeenCalled());
+
+    rerender(<GraphView user={user} initial={{ entities: [entity()], relationships: [] }} />);
+    expect(screen.getByTestId("load-sample-graph")).toBeDisabled();
+  });
+
+  it("deletes an entity you own", async () => {
+    deleteEntity.mockResolvedValue({ ok: true });
+    render(<GraphView user={user} initial={{ entities: [entity()], relationships: [] }} />);
+
+    fireEvent.click(screen.getByTestId("entity-e1-delete"));
+    // the Popconfirm's confirm button is the second "Delete" to appear
+    const confirm = await screen.findAllByRole("button", { name: "Delete" });
+    fireEvent.click(confirm[confirm.length - 1]);
+
+    await waitFor(() => expect(deleteEntity).toHaveBeenCalledWith("e1"));
   });
 
   it("surfaces a backend error", async () => {

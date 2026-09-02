@@ -11,6 +11,7 @@ import {
   Checkbox,
   Form,
   Input,
+  Popconfirm,
   Select,
   Space,
   Switch,
@@ -22,6 +23,8 @@ import type { SessionUser } from "@/lib/auth";
 import {
   createEntity,
   createRelationship,
+  deleteEntity,
+  deleteRelationship,
   seedSampleGraph,
   setEntityVisibility,
   type GraphEntity,
@@ -64,10 +67,13 @@ interface RelationshipFormValues {
 
 export function GraphView({ user, initial }: { user: SessionUser; initial: GraphData }) {
   const router = useRouter();
-  const { loading, error, run } = useAsyncAction();
+  const { loading, error, setError, run } = useAsyncAction();
   const [entityForm] = Form.useForm<EntityFormValues>();
   const [relForm] = Form.useForm<RelationshipFormValues>();
   const [cascade, setCascade] = useState<Record<string, boolean>>({});
+  // The one entity whose visibility toggle is in flight — so toggling A doesn't
+  // spin B's and C's switches or lock the create forms.
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const refresh = () => router.refresh();
   const entities = initial.entities;
@@ -76,13 +82,40 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
     () => new Map(entities.map((entity) => [entity.id, entity.name])),
     [entities],
   );
+  const ownedEntityIds = useMemo(
+    () => new Set(entities.filter((e) => e.owner_id === user.id).map((e) => e.id)),
+    [entities, user.id],
+  );
+  const canDeleteRelationship = (rel: GraphRelationship) =>
+    rel.owner_id === user.id ||
+    ownedEntityIds.has(rel.from_id) ||
+    ownedEntityIds.has(rel.to_id);
 
-  function toggleVisibility(entity: GraphEntity) {
+  async function toggleVisibility(entity: GraphEntity) {
     const next: Visibility = entity.visibility === "public" ? "private" : "public";
-    return run(
-      () => setEntityVisibility(entity.id, { visibility: next, cascade: !!cascade[entity.id] }),
-      { fallback: "Could not change visibility", onSuccess: refresh },
-    );
+    setPendingId(entity.id);
+    setError(null);
+    const result = await setEntityVisibility(entity.id, {
+      visibility: next,
+      cascade: !!cascade[entity.id],
+    });
+    setPendingId(null);
+    if (result.ok) refresh();
+    else setError(result.error ?? "Could not change visibility");
+  }
+
+  function onDeleteEntity(id: string) {
+    return run(() => deleteEntity(id), {
+      fallback: "Could not delete the entity",
+      onSuccess: refresh,
+    });
+  }
+
+  function onDeleteRelationship(id: string) {
+    return run(() => deleteRelationship(id), {
+      fallback: "Could not delete the relationship",
+      onSuccess: refresh,
+    });
   }
 
   function onCreateEntity(values: EntityFormValues) {
@@ -136,7 +169,8 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
             <Switch
               data-testid={`entity-${entity.id}-visibility`}
               checked={entity.visibility === "public"}
-              loading={loading}
+              loading={pendingId === entity.id}
+              disabled={pendingId !== null && pendingId !== entity.id}
               onChange={() => toggleVisibility(entity)}
             />
             <Checkbox
@@ -151,6 +185,23 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
           </Space>
         );
       },
+    },
+    {
+      title: "",
+      key: "delete",
+      render: (_: unknown, entity: GraphEntity) =>
+        entity.owner_id === user.id ? (
+          <Popconfirm
+            title="Delete this entity and its relationships?"
+            okText="Delete"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => onDeleteEntity(entity.id)}
+          >
+            <Button danger size="small" data-testid={`entity-${entity.id}-delete`}>
+              Delete
+            </Button>
+          </Popconfirm>
+        ) : null,
     },
   ];
 
@@ -173,6 +224,23 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
       key: "visibility",
       render: (_: unknown, rel: GraphRelationship) =>
         visibilityTag(rel.visibility),
+    },
+    {
+      title: "",
+      key: "delete",
+      render: (_: unknown, rel: GraphRelationship) =>
+        canDeleteRelationship(rel) ? (
+          <Popconfirm
+            title="Delete this relationship?"
+            okText="Delete"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => onDeleteRelationship(rel.id)}
+          >
+            <Button danger size="small" data-testid={`rel-${rel.id}-delete`}>
+              Delete
+            </Button>
+          </Popconfirm>
+        ) : null,
     },
   ];
 
@@ -203,7 +271,17 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
         data-testid="graph-diagram-card"
         style={{ marginBottom: 16 }}
         extra={
-          <Button data-testid="load-sample-graph" onClick={onLoadSample} loading={loading}>
+          <Button
+            data-testid="load-sample-graph"
+            onClick={onLoadSample}
+            loading={loading}
+            disabled={entities.length > 0}
+            title={
+              entities.length > 0
+                ? "Clear the graph first — the sample would be added on top"
+                : undefined
+            }
+          >
             Load sample graph
           </Button>
         }
