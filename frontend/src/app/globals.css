@@ -10,6 +10,11 @@ main {
   padding: 3rem 1.25rem;
 }
 
+/* The graph page needs more width than the 680px default for its tables. */
+main.graph-shell {
+  max-width: 1100px;
+}
+
 /* Full-viewport centering for the login / register cards. */
 main.auth-shell {
   max-width: none;
