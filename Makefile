@@ -1,4 +1,5 @@
 .PHONY: up down logs verify e2e migrate migrate-down migrate-rollback migrate-status \
+        graph-migrate graph-migrate-down graph-migrate-status \
         test-db-up test-db-down openapi gen-api-types check-api-types \
         backend-lint backend-test frontend-lint frontend-test lint test ci
 
@@ -54,6 +55,17 @@ migrate-rollback:
 
 migrate-status:
 	$(YOYO) list --database "$(DATABASE_URL)"
+
+# --- Neo4j graph migrations (numbered Cypher, tracked in-graph; explicit up/down) ---
+# Neo4j has no yoyo equivalent — see backend/app/graph/migrations.py.
+graph-migrate:
+	cd backend && PYTHONPATH=. $(UV) run python scripts/graph_migrate.py apply
+
+graph-migrate-down:
+	cd backend && PYTHONPATH=. $(UV) run python scripts/graph_migrate.py rollback
+
+graph-migrate-status:
+	cd backend && PYTHONPATH=. $(UV) run python scripts/graph_migrate.py status
 
 # --- Test infrastructure (isolated from the app databases) ---
 test-db-up:
