@@ -62,15 +62,21 @@ Project-level instructions for Claude Code working in this repository.
   `visibility` (`private`/`public`). Neo4j Community has no property-level RBAC,
   so **property-level security is enforced in every read's Cypher `WHERE`** —
   `visibility = 'public' OR owner_id = $owner_id` for nodes; edge + both
-  endpoints for relationships. `tests/graph/test_cypher_predicate.py` fails any
-  `cypher/*.cypher` that reads `:Entity` without that scoping + a `// SECURITY:`
-  note. `PATCH /graph/entities/{id}/visibility` flips one node, or with
-  `cascade=true` the whole caller-owned connected sub-graph (the
-  private→public "merge", symmetric). `service.py` has exactly one
-  `driver.session()` site (`_run`); one compound Cypher statement per call,
-  atomic server-side. Frontend `/graph`: tables + a per-entity visibility
-  `Switch`/cascade `Checkbox` + a Cytoscape.js diagram (`next/dynamic`,
-  `ssr:false`) + a "Load sample graph" injector.
+  endpoints for relationships. Creating a relationship also requires the caller
+  to own at least one endpoint. `tests/graph/test_cypher_predicate.py` (comments
+  stripped) fails any `cypher/*.cypher` that touches `:Entity` without binding
+  `owner_id` to `$owner_id` + a `// SECURITY:` note, and the tenant-visible
+  reads (`list_*`/`get_*`) must carry the full `visibility = 'public' OR …`
+  predicate. `PATCH /graph/entities/{id}/visibility` flips one node, or with
+  `cascade=true` the whole caller-owned connected sub-graph (the private→public
+  "merge", symmetric) — a BFS + two writes in one `session.execute_write`
+  transaction; `affected_ids` lists only entities that actually changed.
+  `DELETE /graph/{entities,relationships}/{id}` (owner, or an endpoint owner for
+  an edge). Single-statement ops go through the lone `_run`
+  (`session.run`, atomic on the server); `list_graph` runs its two reads
+  concurrently. Frontend `/graph`: tables (with delete) + a per-entity
+  visibility `Switch`/cascade `Checkbox` + a Cytoscape.js diagram
+  (`next/dynamic`, `ssr:false`) + a "Load sample graph" injector.
 - **Migrations**: Postgres uses the `yoyo` CLI (plain SQL + `.rollback.sql` in
   `backend/migrations/`) — `make migrate` / `docker compose run --rm migrate`.
   Neo4j has no yoyo equivalent, so `app/graph/migrations.py` is a small

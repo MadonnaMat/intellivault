@@ -9,6 +9,7 @@ all-or-nothing.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
 from datetime import datetime
@@ -132,8 +133,11 @@ async def delete_relationship(driver: AsyncDriver, owner_id: str, relationship_i
 
 
 async def list_graph(driver: AsyncDriver, owner_id: str) -> GraphView:
-    entity_rows = await _run(driver, cypher("list_visible_entities"), owner_id=owner_id)
-    relationship_rows = await _run(driver, cypher("list_visible_relationships"), owner_id=owner_id)
+    # The two reads are independent (separate sessions) — run them concurrently.
+    entity_rows, relationship_rows = await asyncio.gather(
+        _run(driver, cypher("list_visible_entities"), owner_id=owner_id),
+        _run(driver, cypher("list_visible_relationships"), owner_id=owner_id),
+    )
     return GraphView(
         entities=[_entity(row["e"]) for row in entity_rows],
         relationships=[_relationship(row) for row in relationship_rows],
