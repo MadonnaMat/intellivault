@@ -50,6 +50,29 @@ test("cascade-promotes a connected private sub-graph to public", async ({ page }
   await expect(row(page, "Jane Doe")).toContainText("public");
 });
 
+async function pickOption(page: Page, testId: string, label: string): Promise<void> {
+  await page.getByTestId(testId).click();
+  // antd keeps closed dropdowns mounted; the just-opened one is the last in the DOM.
+  await page.locator(`.ant-select-item-option[title="${label}"]`).last().click();
+  await page.keyboard.press("Escape");
+}
+
+test("a relationship touching a private entity can't be made public", async ({ page }) => {
+  await signUpAndOpenGraph(page, "vis@example.com", "Vis");
+  await page.getByTestId("load-sample-graph").click();
+  await expect(row(page, "OpenAI")).toBeVisible();
+
+  await pickOption(page, "create-rel-from", "OpenAI");
+  await pickOption(page, "create-rel-to", "Project Atlas");
+
+  await expect(page.getByTestId("create-rel-visibility")).toHaveClass(/ant-select-disabled/);
+
+  await page.getByTestId("create-rel-kind").fill("mentions");
+  await page.getByTestId("create-rel-submit").click();
+
+  await expect(relRow(page, "mentions")).toContainText("private");
+});
+
 test("an owner can delete an entity and its relationships", async ({ page }) => {
   await signUpAndOpenGraph(page, "del@example.com", "Del");
   await page.getByTestId("load-sample-graph").click();

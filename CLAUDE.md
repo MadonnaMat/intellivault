@@ -62,8 +62,10 @@ Project-level instructions for Claude Code working in this repository.
   `visibility` (`private`/`public`). Neo4j Community has no property-level RBAC,
   so **property-level security is enforced in every read's Cypher `WHERE`** —
   `visibility = 'public' OR owner_id = $owner_id` for nodes; edge + both
-  endpoints for relationships. Creating a relationship also requires the caller
-  to own at least one endpoint. `tests/graph/test_cypher_predicate.py` (comments
+  endpoints for relationships. Creating a relationship requires the caller to own
+  at least one endpoint, and a **public edge is only allowed between two public
+  entities** (an edge can't be more visible than its endpoints) — a public
+  request with a private endpoint is a 422. `tests/graph/test_cypher_predicate.py` (comments
   stripped) fails any `cypher/*.cypher` that touches `:Entity` without binding
   `owner_id` to `$owner_id` + a `// SECURITY:` note, and the tenant-visible
   reads (`list_*`/`get_*`) must carry the full `visibility = 'public' OR …`

@@ -13,7 +13,7 @@ import asyncio
 import json
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Any
+from typing import Any, NoReturn
 from uuid import uuid4
 
 from fastapi import HTTPException, status
@@ -32,6 +32,12 @@ from app.graph.statements import cypher
 
 _DB = "neo4j"
 _NOT_FOUND = status.HTTP_404_NOT_FOUND
+_UNPROCESSABLE = 422  # starlette's HTTP_422_* constant name is mid-rename; the code is stable
+
+_ENDPOINTS_NOT_LINKABLE = (
+    "Both entities must be visible to you and you must own at least one of them"
+)
+_PUBLIC_EDGE_PRIVATE_ENDPOINT = "A public relationship needs both entities to be public"
 
 
 async def _run(driver: AsyncDriver, statement: str, /, **params: Any) -> list[Record]:
@@ -99,6 +105,24 @@ def _relationship(row: Mapping[str, Any]) -> Relationship:
     )
 
 
+async def _reject_relationship(
+    driver: AsyncDriver, owner_id: str, data: RelationshipInput
+) -> NoReturn:
+    """Work out why create_relationship produced no row and raise the right error."""
+    endpoints = await _run(
+        driver,
+        cypher("relationship_endpoints"),
+        from_id=str(data.from_id),
+        to_id=str(data.to_id),
+        owner_id=owner_id,
+    )
+    if endpoints and data.visibility == "public":
+        row = endpoints[0]
+        if row["from_visibility"] != "public" or row["to_visibility"] != "public":
+            raise HTTPException(_UNPROCESSABLE, _PUBLIC_EDGE_PRIVATE_ENDPOINT)
+    raise HTTPException(_NOT_FOUND, _ENDPOINTS_NOT_LINKABLE)
+
+
 async def create_relationship(
     driver: AsyncDriver, owner_id: str, data: RelationshipInput
 ) -> Relationship:
@@ -113,10 +137,7 @@ async def create_relationship(
         visibility=data.visibility,
     )
     if not rows:
-        raise HTTPException(
-            _NOT_FOUND,
-            "Both entities must be visible to you and you must own at least one of them",
-        )
+        await _reject_relationship(driver, owner_id, data)
     return _relationship(rows[0])
 
 

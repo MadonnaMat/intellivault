@@ -1,8 +1,9 @@
 // SECURITY: both endpoints must be visible to the caller (own or public), AND
-// the caller must own at least one of them — so you can link your own entity to
-// a public one, but you cannot fabricate an edge between two public entities you
-// don't own. If nothing matches, the query returns no row and the service
-// raises 404 (the caller can't tell "missing" from "not yours").
+// the caller must own at least one of them, AND a public edge is only allowed
+// between two public entities — an edge must not be more visible than its
+// endpoints. On any violation the query returns no row and the service runs a
+// diagnostic to pick 404 (missing / not visible / not owned) vs 422 (a public
+// edge with a private endpoint).
 // The relationship type must be a Cypher literal (RELATED_TO); the semantic
 // label rides in the `kind` property because Community edition has no APOC for
 // dynamic types. The edge carries its own owner_id / visibility.
@@ -11,7 +12,8 @@ WHERE a.visibility = 'public' OR a.owner_id = $owner_id
 MATCH (b:Entity {id: $to_id})
 WHERE b.visibility = 'public' OR b.owner_id = $owner_id
 WITH a, b
-WHERE a.owner_id = $owner_id OR b.owner_id = $owner_id
+WHERE (a.owner_id = $owner_id OR b.owner_id = $owner_id)
+  AND ($visibility = 'private' OR (a.visibility = 'public' AND b.visibility = 'public'))
 CREATE (a)-[r:RELATED_TO {
   id: $id,
   owner_id: $owner_id,

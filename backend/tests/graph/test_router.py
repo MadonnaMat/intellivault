@@ -88,12 +88,27 @@ def test_create_relationship_returns_201() -> None:
 
 
 def test_create_relationship_404_when_endpoint_not_visible() -> None:
-    with graph_client(FakeNeo4jDriver([])) as client:
+    with graph_client(FakeNeo4jDriver([], [])) as client:
         response = client.post(
             "/graph/relationships",
             json={"from_id": str(uuid4()), "to_id": str(uuid4()), "kind": "x"},
         )
     assert response.status_code == 404
+
+
+def test_create_relationship_422_for_public_edge_to_private_endpoint() -> None:
+    driver = FakeNeo4jDriver([], [{"from_visibility": "public", "to_visibility": "private"}])
+    with graph_client(driver) as client:
+        response = client.post(
+            "/graph/relationships",
+            json={
+                "from_id": str(uuid4()),
+                "to_id": str(uuid4()),
+                "kind": "x",
+                "visibility": "public",
+            },
+        )
+    assert response.status_code == 422
 
 
 def test_change_visibility_returns_affected_ids() -> None:

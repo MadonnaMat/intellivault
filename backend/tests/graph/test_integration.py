@@ -65,12 +65,11 @@ async def test_relationship_hidden_when_an_endpoint_is_another_users_private(
     private_end = await service.create_entity(
         graph_driver, _ALICE, EntityInput(name="a-private", kind="n")
     )
+    # The edge to a private endpoint can only be private (see the rule below).
     await service.create_relationship(
         graph_driver,
         _ALICE,
-        RelationshipInput(
-            from_id=public_end.id, to_id=private_end.id, kind="links", visibility="public"
-        ),
+        RelationshipInput(from_id=public_end.id, to_id=private_end.id, kind="links"),
     )
 
     # Bob can see the public endpoint but not the edge — its other end is
@@ -126,6 +125,42 @@ async def test_can_link_your_own_entity_to_a_public_one(graph_driver: AsyncDrive
         graph_driver, _BOB, RelationshipInput(from_id=mine.id, to_id=alices_public.id, kind="uses")
     )
     assert rel.kind == "uses"
+    assert rel.visibility == "private"  # bob's node is private -> the edge must be too
+
+
+async def test_public_edge_allowed_only_between_two_public_entities(
+    graph_driver: AsyncDriver,
+) -> None:
+    pub_a = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="A", kind="n", visibility="public")
+    )
+    pub_b = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="B", kind="n", visibility="public")
+    )
+    priv = await service.create_entity(graph_driver, _ALICE, EntityInput(name="C", kind="n"))
+
+    ok = await service.create_relationship(
+        graph_driver,
+        _ALICE,
+        RelationshipInput(from_id=pub_a.id, to_id=pub_b.id, kind="k", visibility="public"),
+    )
+    assert ok.visibility == "public"
+
+    with pytest.raises(HTTPException) as exc:
+        await service.create_relationship(
+            graph_driver,
+            _ALICE,
+            RelationshipInput(from_id=pub_a.id, to_id=priv.id, kind="k", visibility="public"),
+        )
+    assert exc.value.status_code == 422
+
+    # a private edge to the same private endpoint is fine
+    private_edge = await service.create_relationship(
+        graph_driver,
+        _ALICE,
+        RelationshipInput(from_id=pub_a.id, to_id=priv.id, kind="k", visibility="private"),
+    )
+    assert private_edge.visibility == "private"
 
 
 async def test_delete_entity_removes_it_and_its_edges(graph_driver: AsyncDriver) -> None:

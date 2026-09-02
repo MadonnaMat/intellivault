@@ -116,7 +116,7 @@ async def test_create_relationship_serialises_and_maps() -> None:
 
 
 async def test_create_relationship_404_when_endpoint_not_visible() -> None:
-    driver = FakeNeo4jDriver([])  # the MATCH / ownership WHERE found nothing
+    driver = FakeNeo4jDriver([], [])  # create: no row; diagnostic: no row either
 
     with pytest.raises(HTTPException) as exc:
         await service.create_relationship(
@@ -126,6 +126,22 @@ async def test_create_relationship_404_when_endpoint_not_visible() -> None:
         )
 
     assert exc.value.status_code == 404
+
+
+async def test_create_relationship_422_for_a_public_edge_to_a_private_endpoint() -> None:
+    driver = FakeNeo4jDriver(
+        [],  # create: rejected by the visibility rule
+        [{"from_visibility": "public", "to_visibility": "private"}],  # diagnostic
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.create_relationship(
+            cast(AsyncDriver, driver),
+            _OWNER,
+            RelationshipInput(from_id=_FROM, to_id=_TO, kind="x", visibility="public"),
+        )
+
+    assert exc.value.status_code == 422
 
 
 async def test_delete_entity_ok_and_404() -> None:

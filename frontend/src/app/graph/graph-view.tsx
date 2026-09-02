@@ -3,7 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -78,10 +78,26 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
   const refresh = () => router.refresh();
   const entities = initial.entities;
   const relationships = initial.relationships ?? [];
+  const entityById = useMemo(
+    () => new Map(entities.map((entity) => [entity.id, entity])),
+    [entities],
+  );
   const nameById = useMemo(
     () => new Map(entities.map((entity) => [entity.id, entity.name])),
     [entities],
   );
+
+  // A relationship can't be more visible than its endpoints: "public" is only
+  // offered when both selected entities are public.
+  const relFromId = Form.useWatch("from_id", relForm);
+  const relToId = Form.useWatch("to_id", relForm);
+  const relCanBePublic =
+    entityById.get(relFromId)?.visibility === "public" &&
+    entityById.get(relToId)?.visibility === "public";
+
+  useEffect(() => {
+    if (!relCanBePublic) relForm.setFieldValue("visibility", "private");
+  }, [relCanBePublic, relForm]);
   const ownedEntityIds = useMemo(
     () => new Set(entities.filter((e) => e.owner_id === user.id).map((e) => e.id)),
     [entities, user.id],
@@ -129,7 +145,8 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
   }
 
   function onCreateRelationship(values: RelationshipFormValues) {
-    return run(() => createRelationship(values), {
+    const visibility = relCanBePublic ? values.visibility : "private";
+    return run(() => createRelationship({ ...values, visibility }), {
       fallback: "Could not create the relationship",
       onSuccess: () => {
         relForm.resetFields();
@@ -362,6 +379,12 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
               options={VISIBILITY_OPTIONS}
               data-testid="create-rel-visibility"
               style={{ width: 120 }}
+              disabled={!relCanBePublic}
+              title={
+                relCanBePublic
+                  ? undefined
+                  : "A relationship can only be public when both entities are public"
+              }
             />
           </Form.Item>
           <Button type="primary" htmlType="submit" loading={loading} data-testid="create-rel-submit">
