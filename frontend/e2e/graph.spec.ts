@@ -24,6 +24,41 @@ function relRow(page: Page, name: string) {
   return page.getByTestId("relationships-card").getByRole("row", { name: new RegExp(name) });
 }
 
+async function pickOption(page: Page, testId: string, label: string): Promise<void> {
+  await page.getByTestId(testId).click();
+  // antd keeps closed dropdowns mounted; the just-opened one is the last in the DOM.
+  await page.locator(`.ant-select-item-option[title="${label}"]`).last().click();
+  await page.keyboard.press("Escape");
+}
+
+async function createEntity(
+  page: Page,
+  name: string,
+  kind: string,
+  visibility: "private" | "public",
+): Promise<void> {
+  await page.getByTestId("create-entity-name").fill(name);
+  await page.getByTestId("create-entity-kind").fill(kind);
+  if (visibility === "public") await pickOption(page, "create-entity-visibility", "Public");
+  await page.getByTestId("create-entity-submit").click();
+  await expect(row(page, name)).toBeVisible();
+}
+
+async function connect(
+  page: Page,
+  from: string,
+  kind: string,
+  to: string,
+  visibility: "private" | "public",
+): Promise<void> {
+  await pickOption(page, "create-rel-from", from);
+  await pickOption(page, "create-rel-to", to);
+  await page.getByTestId("create-rel-kind").fill(kind);
+  if (visibility === "public") await pickOption(page, "create-rel-visibility", "Public");
+  await page.getByTestId("create-rel-submit").click();
+  await expect(relRow(page, kind)).toBeVisible();
+}
+
 test("the sample-graph button populates the tables and the diagram", async ({ page }) => {
   await signUpAndOpenGraph(page, "sample@example.com", "Sample");
 
@@ -49,13 +84,6 @@ test("cascade-promotes a connected private sub-graph to public", async ({ page }
   await expect(row(page, "Project Atlas")).toContainText("public");
   await expect(row(page, "Jane Doe")).toContainText("public");
 });
-
-async function pickOption(page: Page, testId: string, label: string): Promise<void> {
-  await page.getByTestId(testId).click();
-  // antd keeps closed dropdowns mounted; the just-opened one is the last in the DOM.
-  await page.locator(`.ant-select-item-option[title="${label}"]`).last().click();
-  await page.keyboard.press("Escape");
-}
 
 test("a relationship touching a private entity can't be made public", async ({ page }) => {
   await signUpAndOpenGraph(page, "vis@example.com", "Vis");
@@ -86,6 +114,31 @@ test("an owner can delete an entity and its relationships", async ({ page }) => 
   await expect
     .poll(() => page.getByTestId("relationships-card").getByRole("row").count())
     .toBeLessThan(edgesBefore);
+});
+
+test("demoting a node demotes your public edges and drops foreign ones", async ({ browser }) => {
+  const ownerContext = await browser.newContext();
+  const owner = await ownerContext.newPage();
+  await signUpAndOpenGraph(owner, "hub@example.com", "Hub owner");
+  await createEntity(owner, "Hub", "n", "public");
+  await createEntity(owner, "Spoke", "n", "public");
+  await connect(owner, "Hub", "links", "Spoke", "public");
+
+  const visitorContext = await browser.newContext();
+  const visitor = await visitorContext.newPage();
+  await signUpAndOpenGraph(visitor, "watcher@example.com", "Watcher");
+  await createEntity(visitor, "Watcher node", "n", "public");
+  await connect(visitor, "Watcher node", "watches", "Hub", "public");
+
+  await owner.reload();
+  await row(owner, "Hub").getByRole("switch").click();
+
+  await expect(relRow(owner, "links")).toContainText("private"); // owned edge demoted
+  await visitor.reload();
+  await expect(relRow(visitor, "watches")).toHaveCount(0); // foreign edge dropped
+
+  await ownerContext.close();
+  await visitorContext.close();
 });
 
 test("a second user sees only the public entities", async ({ browser }) => {

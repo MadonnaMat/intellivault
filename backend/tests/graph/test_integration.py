@@ -287,6 +287,70 @@ async def test_cascade_promotes_a_chain_longer_than_the_old_25_hop_cap(
     assert len((await service.list_graph(graph_driver, _BOB)).entities) == 30
 
 
+async def test_demote_to_private_demotes_own_public_edges_and_removes_foreign_ones(
+    graph_driver: AsyncDriver,
+) -> None:
+    x = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="X", kind="n", visibility="public")
+    )
+    y = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="Y", kind="n", visibility="public")
+    )
+    await service.create_relationship(
+        graph_driver,
+        _ALICE,
+        RelationshipInput(from_id=x.id, to_id=y.id, kind="own", visibility="public"),
+    )
+    bobs = await service.create_entity(
+        graph_driver, _BOB, EntityInput(name="B", kind="n", visibility="public")
+    )
+    await service.create_relationship(
+        graph_driver,
+        _BOB,
+        RelationshipInput(from_id=bobs.id, to_id=x.id, kind="bob", visibility="public"),
+    )
+
+    await service.change_visibility(
+        graph_driver, _ALICE, str(x.id), VisibilityChange(visibility="private")
+    )
+
+    alice = await service.list_graph(graph_driver, _ALICE)
+    assert [(r.kind, r.visibility) for r in alice.relationships] == [("own", "private")]
+    assert (await service.list_graph(graph_driver, _BOB)).relationships == []  # bob's edge gone
+
+
+async def test_cascade_demote_cleans_incident_edges_across_the_component(
+    graph_driver: AsyncDriver,
+) -> None:
+    a = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="A", kind="n", visibility="public")
+    )
+    b = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="B", kind="n", visibility="public")
+    )
+    await service.create_relationship(
+        graph_driver,
+        _ALICE,
+        RelationshipInput(from_id=a.id, to_id=b.id, kind="ab", visibility="public"),
+    )
+    bobs = await service.create_entity(
+        graph_driver, _BOB, EntityInput(name="Bob", kind="n", visibility="public")
+    )
+    await service.create_relationship(
+        graph_driver,
+        _BOB,
+        RelationshipInput(from_id=bobs.id, to_id=b.id, kind="bob", visibility="public"),
+    )
+
+    await service.change_visibility(
+        graph_driver, _ALICE, str(a.id), VisibilityChange(visibility="private", cascade=True)
+    )
+
+    assert (await service.list_graph(graph_driver, _BOB)).relationships == []
+    alice = await service.list_graph(graph_driver, _ALICE)
+    assert [(r.kind, r.visibility) for r in alice.relationships] == [("ab", "private")]
+
+
 async def test_cascade_reports_only_entities_that_actually_changed(
     graph_driver: AsyncDriver,
 ) -> None:

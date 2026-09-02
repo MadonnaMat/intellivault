@@ -15,11 +15,16 @@ Checks run against the **comment-stripped** body, so a rule mentioned only in a
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
 CYPHER_DIR = Path(__file__).resolve().parents[2] / "app" / "graph" / "cypher"
+
+# owner_id compared to $owner_id in any form: `owner_id: $owner_id` (pattern),
+# `owner_id = $owner_id`, `owner_id <> $owner_id`, `owner_id IN [...]`, etc.
+_OWNER_SCOPED = re.compile(r"owner_id\s*(?::|=|<>|!=|\bIN\b|\bin\b)\s*\$owner_id")
 
 
 def _strip_comments(text: str) -> str:
@@ -37,10 +42,10 @@ def _entity_files() -> list[Path]:
 @pytest.mark.parametrize("path", _entity_files(), ids=lambda p: p.name)
 def test_entity_queries_are_owner_scoped(path: Path) -> None:
     raw = path.read_text(encoding="utf-8")
-    code = _strip_comments(raw).replace(" ", "")
+    code = _strip_comments(raw)
 
-    assert "owner_id:$owner_id" in code or "owner_id=$owner_id" in code, (
-        f"{path.name}: MATCHes :Entity but never binds owner_id to $owner_id"
+    assert _OWNER_SCOPED.search(code), (
+        f"{path.name}: MATCHes :Entity but never scopes owner_id against $owner_id"
     )
     assert "// SECURITY:" in raw, f"{path.name}: missing a // SECURITY: rationale comment"
 

@@ -1,10 +1,10 @@
 """Cypher behind the graph routes.
 
 Single-statement operations go through :func:`_run` (one auto-commit
-``session.run``, atomic on the server). The visibility cascade spans several
-statements — a BFS over the caller-owned sub-graph plus two writes — so it runs
-in one explicit write transaction (:func:`_cascade_visibility`) and is
-all-or-nothing.
+``session.run``, atomic on the server). :func:`change_visibility` spans several
+statements — set the node(s), demote the caller's now-over-visible edges, drop
+foreign edges that now dangle, (for a cascade) BFS the owned sub-graph — so it
+runs in one ``session.execute_write`` transaction and is all-or-nothing.
 """
 
 from __future__ import annotations
@@ -186,9 +186,32 @@ async def _owned_component(tx: AsyncManagedTransaction, owner_id: str, start_id:
     return list(seen)
 
 
+async def _clean_incident_edges(tx: AsyncManagedTransaction, owner_id: str, ids: list[str]) -> None:
+    """After entities in ``ids`` go private: demote the caller's public edges on
+    them, and delete every edge on them the caller doesn't own (it now dangles
+    from a node its owner can't see)."""
+    await _tx_run(tx, "demote_owned_edges", ids=ids, owner_id=owner_id)
+    await _tx_run(tx, "remove_foreign_edges", ids=ids, owner_id=owner_id)
+
+
+async def _single_visibility_tx(
+    tx: AsyncManagedTransaction, owner_id: str, entity_id: str, visibility: str
+) -> VisibilityChangeResult:
+    row = await (
+        await _tx_run(
+            tx, "set_entity_visibility", id=entity_id, owner_id=owner_id, visibility=visibility
+        )
+    ).single()
+    if row is None:
+        raise HTTPException(_NOT_FOUND, "Entity not found")
+    if visibility == "private":
+        await _clean_incident_edges(tx, owner_id, [entity_id])
+    return VisibilityChangeResult(affected_ids=[row["id"]] if row["changed"] else [])
+
+
 async def _cascade_tx(
     tx: AsyncManagedTransaction, owner_id: str, entity_id: str, visibility: str
-) -> list[str]:
+) -> VisibilityChangeResult:
     owned = await (
         await _tx_run(tx, "owned_entity_exists", id=entity_id, owner_id=owner_id)
     ).values()
@@ -201,35 +224,18 @@ async def _cascade_tx(
     )
     changed_row = await entity_result.single()
     await _tx_run(tx, "flip_relationships", ids=ids, owner_id=owner_id, visibility=visibility)
+    if visibility == "private":
+        await _clean_incident_edges(tx, owner_id, ids)
     changed: list[str] = list(changed_row["changed"]) if changed_row else []
-    return changed
-
-
-async def _cascade_visibility(
-    driver: AsyncDriver, owner_id: str, entity_id: str, visibility: str
-) -> list[str]:
-    async with driver.session(database=_DB) as session:
-        result: list[str] = await session.execute_write(
-            _cascade_tx, owner_id, entity_id, visibility
-        )
-        return result
+    return VisibilityChangeResult(affected_ids=changed)
 
 
 async def change_visibility(
     driver: AsyncDriver, owner_id: str, entity_id: str, change: VisibilityChange
 ) -> VisibilityChangeResult:
-    if change.cascade:
-        affected = await _cascade_visibility(driver, owner_id, entity_id, change.visibility)
-        return VisibilityChangeResult(affected_ids=affected)
-
-    rows = await _run(
-        driver,
-        cypher("set_entity_visibility"),
-        id=entity_id,
-        owner_id=owner_id,
-        visibility=change.visibility,
-    )
-    if not rows:
-        raise HTTPException(_NOT_FOUND, "Entity not found")
-    row = rows[0]
-    return VisibilityChangeResult(affected_ids=[row["id"]] if row["changed"] else [])
+    tx_fn = _cascade_tx if change.cascade else _single_visibility_tx
+    async with driver.session(database=_DB) as session:
+        result: VisibilityChangeResult = await session.execute_write(
+            tx_fn, owner_id, entity_id, change.visibility
+        )
+        return result

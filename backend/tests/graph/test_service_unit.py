@@ -195,6 +195,23 @@ async def test_change_visibility_single_flip_404() -> None:
     assert exc.value.status_code == 404
 
 
+async def test_change_visibility_to_private_cleans_incident_edges() -> None:
+    node_id = str(uuid4())
+    driver = FakeNeo4jDriver(
+        [{"id": node_id, "changed": True}],  # set_entity_visibility
+        [{"changed": 0}],  # demote_owned_edges
+        [{"removed": 2}],  # remove_foreign_edges
+    )
+
+    result = await service.change_visibility(
+        cast(AsyncDriver, driver), _OWNER, node_id, VisibilityChange(visibility="private")
+    )
+
+    assert [str(i) for i in result.affected_ids] == [node_id]
+    assert any("DELETE r" in text for text, _ in driver.calls)  # remove_foreign_edges ran
+    assert sum(1 for _, params in driver.calls if params.get("ids") == [node_id]) == 2
+
+
 async def test_change_visibility_cascade_bfs_then_flips_only_changed() -> None:
     start, neighbour = str(uuid4()), str(uuid4())
     driver = FakeNeo4jDriver(

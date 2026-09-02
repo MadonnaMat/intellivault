@@ -71,10 +71,12 @@ Project-level instructions for Claude Code working in this repository.
   reads (`list_*`/`get_*`) must carry the full `visibility = 'public' OR …`
   predicate. `PATCH /graph/entities/{id}/visibility` flips one node, or with
   `cascade=true` the whole caller-owned connected sub-graph (the private→public
-  "merge", symmetric) — a BFS + two writes in one `session.execute_write`
-  transaction; `affected_ids` lists only entities that actually changed.
-  `DELETE /graph/{entities,relationships}/{id}` (owner, or an endpoint owner for
-  an edge). Single-statement ops go through the lone `_run`
+  "merge", symmetric) — one `session.execute_write` transaction; `affected_ids`
+  lists only entities that actually changed. Going **→ private** also demotes the
+  caller's now-over-visible public edges on those nodes and **deletes** every
+  edge on them the caller doesn't own (it would dangle from a node its owner can
+  no longer see). `DELETE /graph/{entities,relationships}/{id}` (owner, or an
+  endpoint owner for an edge). Single-statement ops go through the lone `_run`
   (`session.run`, atomic on the server); `list_graph` runs its two reads
   concurrently. Frontend `/graph`: tables (with delete) + a per-entity
   visibility `Switch`/cascade `Checkbox` + a Cytoscape.js diagram
