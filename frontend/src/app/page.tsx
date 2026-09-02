@@ -24,6 +24,11 @@ export default async function Home() {
           Account &amp; passkeys
         </Link>
       </p>
+      <p>
+        <Link href="/graph" data-testid="graph-link">
+          Knowledge graph
+        </Link>
+      </p>
       <LogoutButton />
       <HealthCard initial={initial} />
     </main>

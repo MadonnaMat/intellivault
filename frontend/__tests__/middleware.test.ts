@@ -15,6 +15,7 @@ describe("middleware", () => {
   it("sends anonymous visitors of protected routes to /login", () => {
     expect(location("/")).toBe("http://localhost:3000/login");
     expect(location("/account")).toBe("http://localhost:3000/login");
+    expect(location("/graph")).toBe("http://localhost:3000/login");
   });
 
   it("lets anyone reach the auth pages (the pages redirect once the session checks out)", () => {
@@ -26,9 +27,10 @@ describe("middleware", () => {
   it("lets signed-in visitors through to protected routes", () => {
     expect(location("/", { session: true })).toBeNull();
     expect(location("/account", { session: true })).toBeNull();
+    expect(location("/graph", { session: true })).toBeNull();
   });
 
-  it("guards the homepage, account page and both auth pages", () => {
-    expect(config.matcher).toEqual(["/", "/account", "/login", "/register"]);
+  it("guards the homepage, account page, graph page and both auth pages", () => {
+    expect(config.matcher).toEqual(["/", "/account", "/graph", "/login", "/register"]);
   });
 });

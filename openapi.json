@@ -69,6 +69,125 @@
         "title": "CredentialSummary",
         "type": "object"
       },
+      "Entity": {
+        "description": "An entity node as returned to the caller.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "visibility",
+          "name",
+          "kind",
+          "attributes",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Entity",
+        "type": "object"
+      },
+      "EntityInput": {
+        "description": "The caller-supplied fields when creating an entity.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "kind": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "EntityInput",
+        "type": "object"
+      },
+      "GraphView": {
+        "description": "Everything in the graph the caller may see.",
+        "properties": {
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/Entity"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "relationships": {
+            "items": {
+              "$ref": "#/components/schemas/Relationship"
+            },
+            "title": "Relationships",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entities"
+        ],
+        "title": "GraphView",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -128,6 +247,102 @@
           "display_name"
         ],
         "title": "RegisterBeginRequest",
+        "type": "object"
+      },
+      "Relationship": {
+        "description": "A ``RELATED_TO`` edge as returned to the caller.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "from_id": {
+            "format": "uuid",
+            "title": "From Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "to_id": {
+            "format": "uuid",
+            "title": "To Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "from_id",
+          "to_id",
+          "kind",
+          "visibility",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Relationship",
+        "type": "object"
+      },
+      "RelationshipInput": {
+        "description": "The caller-supplied fields when connecting two entities.",
+        "properties": {
+          "from_id": {
+            "format": "uuid",
+            "title": "From Id",
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "to_id": {
+            "format": "uuid",
+            "title": "To Id",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_id",
+          "to_id",
+          "kind"
+        ],
+        "title": "RelationshipInput",
         "type": "object"
       },
       "ServiceStatus": {
@@ -263,6 +478,47 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VisibilityChange": {
+        "description": "Flip an entity's visibility, optionally cascading to its sub-graph.",
+        "properties": {
+          "cascade": {
+            "default": false,
+            "title": "Cascade",
+            "type": "boolean"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "visibility"
+        ],
+        "title": "VisibilityChange",
+        "type": "object"
+      },
+      "VisibilityChangeResult": {
+        "description": "The ids of every entity whose visibility actually changed.",
+        "properties": {
+          "affected_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Affected Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "affected_ids"
+        ],
+        "title": "VisibilityChangeResult",
         "type": "object"
       }
     }
@@ -621,6 +877,235 @@
         "summary": "Register Finish",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/graph": {
+      "get": {
+        "description": "Every entity the caller may see: their own plus all public ones.",
+        "operationId": "get_graph_graph_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Graph",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/entities": {
+      "post": {
+        "operationId": "create_entity_graph_entities_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Entity"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Entity",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/entities/{entity_id}": {
+      "delete": {
+        "operationId": "delete_entity_graph_entities__entity_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Entity",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/entities/{entity_id}/visibility": {
+      "patch": {
+        "operationId": "change_entity_visibility_graph_entities__entity_id__visibility_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisibilityChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisibilityChangeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Entity Visibility",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/relationships": {
+      "post": {
+        "operationId": "create_relationship_graph_relationships_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationshipInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Relationship"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Relationship",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/relationships/{relationship_id}": {
+      "delete": {
+        "operationId": "delete_relationship_graph_relationships__relationship_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "relationship_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Relationship Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Relationship",
+        "tags": [
+          "graph"
         ]
       }
     },

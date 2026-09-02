@@ -41,4 +41,5 @@ def test_lifespan_wires_and_tears_down(closed: list[str]) -> None:
     with TestClient(app):
         assert isinstance(app.state.health_probes, HealthProbes)
         assert app.state.pg_pool is app.state.health_probes.pg_pool
+        assert app.state.neo4j_driver is app.state.health_probes.neo4j_driver
     assert closed == ["http", "neo4j", "pg"]

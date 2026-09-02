@@ -154,6 +154,20 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-intellivault}:${POSTGRES_PASSWORD:-intellivault}@postgres:5432/${POSTGRES_DB:-intellivault}
     command: ["yoyo", "apply", "--batch", "--database", "postgresql://${POSTGRES_USER:-intellivault}:${POSTGRES_PASSWORD:-intellivault}@postgres:5432/${POSTGRES_DB:-intellivault}", "migrations"]
 
+  # One-shot Neo4j graph-migration runner: `docker compose run --rm graph-migrate`.
+  # Neo4j has no yoyo equivalent — see backend/app/graph/migrations.py. Like
+  # `migrate`, applying graph schema is a deliberate step.
+  graph-migrate:
+    build: ./backend
+    profiles: ["tools"]
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-intellivault}
+    command: ["python", "scripts/graph_migrate.py", "apply"]
+
 volumes:
   pg_data:
   neo4j_data:

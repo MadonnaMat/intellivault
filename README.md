@@ -4,9 +4,12 @@ A collaborative intelligence vault — a FastAPI gateway and Next.js frontend ov
 Neo4j graph/vector store, Postgres for auth/credential metadata, Arize-Phoenix for
 agent observability, and a local Ollama model server.
 
-This repository is currently a **scaffold**: one-command bring-up, a `/health`
-endpoint that deeply probes every dependency, a frontend that renders it, and full
-lint / type / complexity / test tooling on both sides. No domain logic yet.
+One-command bring-up, a `/health` endpoint that deeply probes every dependency,
+passwordless WebAuthn passkey auth, and the first domain slice: a Neo4j
+knowledge graph of `Entity` nodes and `RELATED_TO` edges, each carrying an
+owner and a `private`/`public` visibility, with a `/graph` UI to build it and
+flip whole sub-graphs public. Full lint / type / complexity / test tooling on
+both sides.
 
 ## Architecture
 
@@ -52,10 +55,15 @@ Then open:
 ```bash
 make lint            # backend-lint + frontend-lint
 make test            # backend-test + frontend-test
-make migrate         # apply DB migrations   (migrate-down / migrate-status)
+make migrate         # apply Postgres migrations   (migrate-down / migrate-status)
+make graph-migrate   # apply Neo4j graph schema    (graph-migrate-down / -status)
 make gen-api-types   # FastAPI schema -> frontend/src/lib/api-schema.ts
 make test-db-up      # isolated Postgres test DB + disposable Neo4j (profile "test")
 ```
+
+Neo4j has no migration framework like yoyo; `backend/app/graph/migrations.py` is
+a small numbered-Cypher runner that tracks applied migrations as nodes in the
+graph. See [CLAUDE.md](CLAUDE.md).
 
 Backend and frontend each have their own toolchain — see `backend/pyproject.toml`
 and `frontend/package.json`. The frontend's TypeScript types for the API are

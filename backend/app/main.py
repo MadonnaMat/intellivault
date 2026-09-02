@@ -14,6 +14,7 @@ from neo4j import AsyncGraphDatabase
 from app import observability
 from app.auth import auth_router
 from app.config import Settings, get_settings
+from app.graph import graph_router
 from app.health import health_router
 from app.health.checks import CHECK_TIMEOUT_SECONDS, HealthProbes
 
@@ -40,9 +41,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     http_client = httpx.AsyncClient(timeout=CHECK_TIMEOUT_SECONDS)
 
-    # The pool is shared: health probes read it, and request handlers reach it
-    # via the app.db.get_pool dependency.
+    # Shared clients live on app.state; request handlers reach them via the
+    # app.db.get_pool / app.graph.db.get_driver dependencies, and the health
+    # probes read the same objects.
     app.state.pg_pool = pg_pool
+    app.state.neo4j_driver = neo4j_driver
     app.state.health_probes = HealthProbes(
         settings=settings,
         pg_pool=pg_pool,
@@ -75,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     observability.setup(app, settings)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(graph_router)
 
     return app
 

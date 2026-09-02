@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requestJson } from "./api";
 import { SESSION_COOKIE, serverBackendUrl } from "./backend";
 import type { CredentialSummary, SessionUser } from "./auth";
+import type { GraphView } from "./graph";
 
 /**
  * GET a backend endpoint from a server component, forwarding the session cookie.
@@ -34,6 +35,11 @@ export function currentUser(): Promise<SessionUser | null> {
 
 export function currentUserCredentials(): Promise<CredentialSummary[] | null> {
   return backendGet<CredentialSummary[]>("/auth/credentials");
+}
+
+/** The caller's visible slice of the knowledge graph (server components only). */
+export function currentGraph(): Promise<GraphView | null> {
+  return backendGet<GraphView>("/graph");
 }
 
 /** For the public auth pages: bounce to `/` once a real session is confirmed. */
