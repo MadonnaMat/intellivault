@@ -37,6 +37,7 @@ verify:
 e2e:
 	docker compose up -d --wait postgres neo4j phoenix
 	docker compose run --rm migrate
+	docker compose run --rm graph-migrate
 	docker compose up -d --wait backend frontend
 	cd frontend && $(PNPM) exec playwright install --with-deps chromium
 	cd frontend && $(PNPM) e2e

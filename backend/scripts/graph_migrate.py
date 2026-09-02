@@ -15,23 +15,31 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 
 from neo4j import AsyncGraphDatabase
 
-from app.config import get_settings
 from app.graph.migrations import (
     apply_graph_migrations,
     graph_migration_status,
     rollback_graph_migrations,
 )
 
+# Read Neo4j connection details straight from the environment rather than the
+# full app Settings — this runner has no business requiring DATABASE_URL. The
+# repo .env feeds native `make graph-migrate`; compose injects them directly.
+_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
+_USER = os.environ.get("NEO4J_USER", "neo4j")
+_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
+
 
 async def _run(command: str) -> None:
-    settings = get_settings()
+    # Migrations legitimately reference labels/properties that don't exist yet
+    # (the _GraphMigration bookkeeping node on a first run), so silence the
+    # server's "label does not exist" notifications for this connection.
     driver = AsyncGraphDatabase.driver(
-        settings.neo4j_uri,
-        auth=(settings.neo4j_user, settings.neo4j_password.get_secret_value()),
+        _URI, auth=(_USER, _PASSWORD), notifications_min_severity="OFF"
     )
     try:
         if command == "apply":
