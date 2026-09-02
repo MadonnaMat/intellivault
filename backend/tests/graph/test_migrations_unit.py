@@ -71,6 +71,28 @@ class _AsyncRows:
             raise StopAsyncIteration from None
 
 
+_Calls = list[tuple[str, dict[str, Any]]]
+
+
+def _record_run(
+    driver: _FakeDriver, bucket: _Calls, query: Any, params: dict[str, Any]
+) -> _FakeResult:
+    text = getattr(query, "text", query)
+    driver.calls.append((text, params))
+    bucket.append((text, params))
+    if text.startswith("MATCH (m:_GraphMigration) RETURN"):
+        return _FakeResult([{"id": mid} for mid in driver.applied])
+    return _FakeResult([])
+
+
+class _FakeTx:
+    def __init__(self, driver: _FakeDriver) -> None:
+        self._driver = driver
+
+    async def run(self, query: Any, **params: Any) -> _FakeResult:
+        return _record_run(self._driver, self._driver.tx_calls, query, params)
+
+
 class _FakeSession:
     def __init__(self, driver: _FakeDriver) -> None:
         self._driver = driver
@@ -82,17 +104,18 @@ class _FakeSession:
         return False
 
     async def run(self, query: Any, **params: Any) -> _FakeResult:
-        text = getattr(query, "text", query)
-        self._driver.calls.append((text, params))
-        if text.startswith("MATCH (m:_GraphMigration) RETURN"):
-            return _FakeResult([{"id": mid} for mid in self._driver.applied])
-        return _FakeResult([])
+        return _record_run(self._driver, self._driver.session_calls, query, params)
+
+    async def execute_write(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
+        return await fn(_FakeTx(self._driver), *args, **kwargs)
 
 
 class _FakeDriver:
     def __init__(self, applied: list[str] | None = None) -> None:
         self.applied = applied or []
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.session_calls: list[tuple[str, dict[str, Any]]] = []
+        self.tx_calls: list[tuple[str, dict[str, Any]]] = []
 
     def session(self, **_: Any) -> _FakeSession:
         return _FakeSession(self)
@@ -137,3 +160,30 @@ def test_missing_rollback_file_is_tolerated(tmp_path: Path) -> None:
     )
     migrations = load_graph_migrations(tmp_path)
     assert migrations[0].rollback == ()
+
+
+async def test_schema_only_migration_runs_auto_commit_not_in_a_tx(tmp_path: Path) -> None:
+    (tmp_path / "0002.index.cypher").write_text(
+        "CREATE INDEX foo IF NOT EXISTS FOR (e:Entity) ON (e.foo);"
+    )
+    driver = _FakeDriver()
+
+    await apply_graph_migrations(cast(AsyncDriver, driver), directory=tmp_path)
+
+    assert driver.tx_calls == []  # schema commands never open a write transaction
+    assert any("CREATE INDEX foo" in q for q, _ in driver.session_calls)
+    assert any(q.startswith("CREATE (m:_GraphMigration") for q, _ in driver.session_calls)
+
+
+async def test_data_migration_runs_in_one_transaction_with_its_bookkeeping(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "0002.backfill.cypher").write_text("MATCH (e:Entity) SET e.tag = 'x';")
+    driver = _FakeDriver()
+
+    applied = await apply_graph_migrations(cast(AsyncDriver, driver), directory=tmp_path)
+
+    assert applied == ["0002.backfill"]
+    tx_texts = [q for q, _ in driver.tx_calls]
+    assert any("SET e.tag" in q for q in tx_texts)
+    assert any(q.startswith("CREATE (m:_GraphMigration") for q in tx_texts)

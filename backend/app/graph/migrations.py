@@ -18,14 +18,28 @@ share a transaction, so they run one-per-``session.run`` in file order.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from neo4j import AsyncDriver, AsyncSession, Query
+from neo4j import AsyncDriver, AsyncManagedTransaction, AsyncSession, Query
 
 GRAPH_MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "graph_migrations"
 
 _LABEL = "_GraphMigration"
+_RECORD = f"CREATE (m:{_LABEL} {{id: $id, applied_at: datetime()}})"
+_UNRECORD = f"MATCH (m:{_LABEL} {{id: $id}}) DELETE m"
+
+# Schema commands (CREATE/DROP CONSTRAINT/INDEX) cannot share a transaction with
+# a data write, so a schema-only migration runs its statements auto-commit and
+# then records itself — safe because those statements are idempotent
+# (IF NOT EXISTS / IF EXISTS). Anything else runs in one transaction with the
+# tracking write, so a mid-way failure rolls the whole migration back.
+_SCHEMA_STATEMENT = re.compile(r"^\s*(CREATE|DROP)\s+(CONSTRAINT|INDEX)\b", re.IGNORECASE)
+
+
+def _is_schema_only(statements: tuple[str, ...]) -> bool:
+    return bool(statements) and all(_SCHEMA_STATEMENT.match(s) for s in statements)
 
 
 def _split_statements(text: str) -> list[str]:
@@ -70,6 +84,27 @@ async def _applied_ids(session: AsyncSession) -> set[str]:
     return {record["id"] async for record in result}
 
 
+async def _run_steps_then_bookkeeping(
+    tx: AsyncManagedTransaction, statements: tuple[str, ...], bookkeeping: str, migration_id: str
+) -> None:
+    for statement in statements:
+        await tx.run(statement)
+    await tx.run(bookkeeping, id=migration_id)
+
+
+async def _apply_step(
+    session: AsyncSession, statements: tuple[str, ...], bookkeeping: str, migration_id: str
+) -> None:
+    if _is_schema_only(statements):
+        for statement in statements:
+            await session.run(Query(statement))
+        await session.run(Query(bookkeeping), id=migration_id)
+    else:
+        await session.execute_write(
+            _run_steps_then_bookkeeping, statements, bookkeeping, migration_id
+        )
+
+
 async def apply_graph_migrations(
     driver: AsyncDriver,
     *,
@@ -83,12 +118,7 @@ async def apply_graph_migrations(
         for migration in load_graph_migrations(directory):
             if migration.id in done:
                 continue
-            for statement in migration.statements:
-                await session.run(Query(statement))
-            await session.run(
-                Query(f"CREATE (m:{_LABEL} {{id: $id, applied_at: datetime()}})"),
-                id=migration.id,
-            )
+            await _apply_step(session, migration.statements, _RECORD, migration.id)
             newly.append(migration.id)
     return newly
 
@@ -106,9 +136,7 @@ async def rollback_graph_migrations(
         for migration in reversed(load_graph_migrations(directory)):
             if migration.id not in done:
                 continue
-            for statement in migration.rollback:
-                await session.run(Query(statement))
-            await session.run(Query(f"MATCH (m:{_LABEL} {{id: $id}}) DELETE m"), id=migration.id)
+            await _apply_step(session, migration.rollback, _UNRECORD, migration.id)
             undone.append(migration.id)
     return undone
 

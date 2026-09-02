@@ -29,17 +29,20 @@ from app.graph.migrations import (
 # Read Neo4j connection details straight from the environment rather than the
 # full app Settings — this runner has no business requiring DATABASE_URL. The
 # repo .env feeds native `make graph-migrate`; compose injects them directly.
+# NEO4J_PASSWORD is a required secret — no default (see CLAUDE.md).
 _URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
 _USER = os.environ.get("NEO4J_USER", "neo4j")
-_PASSWORD = os.environ.get("NEO4J_PASSWORD", "")
 
 
 async def _run(command: str) -> None:
+    password = os.environ.get("NEO4J_PASSWORD")
+    if not password:
+        raise SystemExit("NEO4J_PASSWORD is required")
     # Migrations legitimately reference labels/properties that don't exist yet
     # (the _GraphMigration bookkeeping node on a first run), so silence the
     # server's "label does not exist" notifications for this connection.
     driver = AsyncGraphDatabase.driver(
-        _URI, auth=(_USER, _PASSWORD), notifications_min_severity="OFF"
+        _URI, auth=(_USER, password), notifications_min_severity="OFF"
     )
     try:
         if command == "apply":
