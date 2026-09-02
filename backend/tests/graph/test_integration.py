@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+from fastapi import HTTPException
 from neo4j import AsyncDriver
 
 from app.graph import service
-from app.graph.schemas import EntityInput
+from app.graph.schemas import EntityInput, RelationshipInput
 from tests.graph.conftest import requires_neo4j
 
 pytestmark = requires_neo4j
@@ -52,3 +54,48 @@ async def test_create_entity_round_trips(graph_driver: AsyncDriver) -> None:
     assert fetched.attributes == {"tier": "gold"}
     assert fetched.owner_id == created.owner_id
     assert fetched.created_at == created.created_at
+
+
+async def test_relationship_hidden_when_an_endpoint_is_another_users_private(
+    graph_driver: AsyncDriver,
+) -> None:
+    public_end = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="a-public", kind="n", visibility="public")
+    )
+    private_end = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="a-private", kind="n")
+    )
+    await service.create_relationship(
+        graph_driver,
+        _ALICE,
+        RelationshipInput(
+            from_id=public_end.id, to_id=private_end.id, kind="links", visibility="public"
+        ),
+    )
+
+    # Bob can see the public endpoint but not the edge — its other end is
+    # Alice's private node.
+    bob_view = await service.list_graph(graph_driver, _BOB)
+    assert bob_view.relationships == []
+    assert {e.name for e in bob_view.entities} == {"a-public"}
+
+    alice_view = await service.list_graph(graph_driver, _ALICE)
+    assert [r.kind for r in alice_view.relationships] == ["links"]
+
+
+async def test_create_relationship_rejects_an_invisible_endpoint(
+    graph_driver: AsyncDriver,
+) -> None:
+    mine = await service.create_entity(graph_driver, _ALICE, EntityInput(name="mine", kind="n"))
+    bobs_private = await service.create_entity(
+        graph_driver, _BOB, EntityInput(name="bobs", kind="n")
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.create_relationship(
+            graph_driver,
+            _ALICE,
+            RelationshipInput(from_id=mine.id, to_id=bobs_private.id, kind="x"),
+        )
+
+    assert exc.value.status_code == 404

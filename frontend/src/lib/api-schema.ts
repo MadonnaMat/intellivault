@@ -212,6 +212,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/graph/relationships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Relationship */
+        post: operations["create_relationship_graph_relationships_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -353,6 +370,8 @@ export interface components {
         GraphView: {
             /** Entities */
             entities: components["schemas"]["Entity"][];
+            /** Relationships */
+            relationships?: components["schemas"]["Relationship"][];
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -381,6 +400,73 @@ export interface components {
              * Format: email
              */
             email: string;
+        };
+        /**
+         * Relationship
+         * @description A ``RELATED_TO`` edge as returned to the caller.
+         */
+        Relationship: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * From Id
+             * Format: uuid
+             */
+            from_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Owner Id
+             * Format: uuid
+             */
+            owner_id: string;
+            /**
+             * To Id
+             * Format: uuid
+             */
+            to_id: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+        };
+        /**
+         * RelationshipInput
+         * @description The caller-supplied fields when connecting two entities.
+         */
+        RelationshipInput: {
+            /**
+             * From Id
+             * Format: uuid
+             */
+            from_id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * To Id
+             * Format: uuid
+             */
+            to_id: string;
+            /**
+             * Visibility
+             * @default private
+             * @enum {string}
+             */
+            visibility: "private" | "public";
         };
         /**
          * ServiceStatus
@@ -792,6 +878,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Entity"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_relationship_graph_relationships_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationshipInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Relationship"];
                 };
             };
             /** @description Validation Error */

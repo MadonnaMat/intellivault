@@ -173,6 +173,13 @@
             },
             "title": "Entities",
             "type": "array"
+          },
+          "relationships": {
+            "items": {
+              "$ref": "#/components/schemas/Relationship"
+            },
+            "title": "Relationships",
+            "type": "array"
           }
         },
         "required": [
@@ -240,6 +247,102 @@
           "display_name"
         ],
         "title": "RegisterBeginRequest",
+        "type": "object"
+      },
+      "Relationship": {
+        "description": "A ``RELATED_TO`` edge as returned to the caller.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "from_id": {
+            "format": "uuid",
+            "title": "From Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "owner_id": {
+            "format": "uuid",
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "to_id": {
+            "format": "uuid",
+            "title": "To Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "owner_id",
+          "from_id",
+          "to_id",
+          "kind",
+          "visibility",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Relationship",
+        "type": "object"
+      },
+      "RelationshipInput": {
+        "description": "The caller-supplied fields when connecting two entities.",
+        "properties": {
+          "from_id": {
+            "format": "uuid",
+            "title": "From Id",
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "to_id": {
+            "format": "uuid",
+            "title": "To Id",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "private",
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_id",
+          "to_id",
+          "kind"
+        ],
+        "title": "RelationshipInput",
         "type": "object"
       },
       "ServiceStatus": {
@@ -794,6 +897,47 @@
           }
         },
         "summary": "Create Entity",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/relationships": {
+      "post": {
+        "operationId": "create_relationship_graph_relationships_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationshipInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Relationship"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Relationship",
         "tags": [
           "graph"
         ]

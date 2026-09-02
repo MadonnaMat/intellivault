@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.auth.dependencies import current_user
@@ -26,48 +26,76 @@ _NODE = {
     "created_at": datetime(2026, 1, 1, tzinfo=UTC),
     "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
 }
+_EDGE = {
+    "id": str(uuid4()),
+    "owner_id": str(_USER.id),
+    "kind": "employs",
+    "visibility": "public",
+    "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+    "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
+}
 
 
-def _client(driver: FakeNeo4jDriver) -> Iterator[TestClient]:
+@contextmanager
+def graph_client(driver: FakeNeo4jDriver, *, authenticated: bool = True) -> Iterator[TestClient]:
     app = create_app()
-    app.dependency_overrides[current_user] = lambda: _USER
+    if authenticated:
+        app.dependency_overrides[current_user] = lambda: _USER
     app.dependency_overrides[get_driver] = lambda: driver
-    with TestClient(app) as client:
-        yield client
-    app.dependency_overrides.clear()
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
-@pytest.fixture
-def get_graph_client() -> Iterator[TestClient]:
-    yield from _client(FakeNeo4jDriver([{"e": _NODE}]))
-
-
-def test_get_graph_returns_visible_entities(get_graph_client: TestClient) -> None:
-    response = get_graph_client.get("/graph")
-    assert response.status_code == 200
-    body = response.json()
-    assert [e["name"] for e in body["entities"]] == ["Acme"]
-
-
-def test_create_entity_returns_201(get_graph_client: TestClient) -> None:
-    response = get_graph_client.post(
-        "/graph/entities", json={"name": "Acme", "kind": "org", "visibility": "public"}
+def test_get_graph_returns_visible_entities_and_edges() -> None:
+    driver = FakeNeo4jDriver(
+        [{"e": _NODE}], [{"r": _EDGE, "from_id": str(uuid4()), "to_id": str(uuid4())}]
     )
+    with graph_client(driver) as client:
+        body = client.get("/graph").json()
+    assert [e["name"] for e in body["entities"]] == ["Acme"]
+    assert [r["kind"] for r in body["relationships"]] == ["employs"]
+
+
+def test_create_entity_returns_201() -> None:
+    with graph_client(FakeNeo4jDriver([{"e": _NODE}])) as client:
+        response = client.post(
+            "/graph/entities", json={"name": "Acme", "kind": "org", "visibility": "public"}
+        )
     assert response.status_code == 201
     assert response.json()["name"] == "Acme"
 
 
-def test_create_entity_rejects_bad_visibility(get_graph_client: TestClient) -> None:
-    response = get_graph_client.post(
-        "/graph/entities", json={"name": "Acme", "kind": "org", "visibility": "secret"}
-    )
+def test_create_entity_rejects_bad_visibility() -> None:
+    with graph_client(FakeNeo4jDriver([{"e": _NODE}])) as client:
+        response = client.post(
+            "/graph/entities", json={"name": "Acme", "kind": "org", "visibility": "secret"}
+        )
     assert response.status_code == 422
 
 
+def test_create_relationship_returns_201() -> None:
+    driver = FakeNeo4jDriver([{"r": _EDGE, "from_id": str(uuid4()), "to_id": str(uuid4())}])
+    with graph_client(driver) as client:
+        response = client.post(
+            "/graph/relationships",
+            json={"from_id": str(uuid4()), "to_id": str(uuid4()), "kind": "employs"},
+        )
+    assert response.status_code == 201
+    assert response.json()["kind"] == "employs"
+
+
+def test_create_relationship_404_when_endpoint_not_visible() -> None:
+    with graph_client(FakeNeo4jDriver([])) as client:
+        response = client.post(
+            "/graph/relationships",
+            json={"from_id": str(uuid4()), "to_id": str(uuid4()), "kind": "x"},
+        )
+    assert response.status_code == 404
+
+
 def test_graph_requires_authentication() -> None:
-    # No current_user override: the real dependency runs and rejects.
-    app = create_app()
-    app.dependency_overrides[get_driver] = lambda: FakeNeo4jDriver()
-    with TestClient(app) as client:
+    with graph_client(FakeNeo4jDriver(), authenticated=False) as client:
         assert client.get("/graph").status_code == 401
-    app.dependency_overrides.clear()

@@ -16,7 +16,13 @@ from app.auth.dependencies import current_user
 from app.auth.schemas import SessionUser
 from app.graph import service
 from app.graph.db import get_driver
-from app.graph.schemas import Entity, EntityInput, GraphView
+from app.graph.schemas import (
+    Entity,
+    EntityInput,
+    GraphView,
+    Relationship,
+    RelationshipInput,
+)
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -33,3 +39,10 @@ async def get_graph(driver: Driver, user: CurrentUser) -> GraphView:
 @router.post("/entities", status_code=status.HTTP_201_CREATED)
 async def create_entity(data: EntityInput, driver: Driver, user: CurrentUser) -> Entity:
     return await service.create_entity(driver, str(user.id), data)
+
+
+@router.post("/relationships", status_code=status.HTTP_201_CREATED)
+async def create_relationship(
+    data: RelationshipInput, driver: Driver, user: CurrentUser
+) -> Relationship:
+    return await service.create_relationship(driver, str(user.id), data)

@@ -6,14 +6,26 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import uuid4
 
+import pytest
+from fastapi import HTTPException
 from neo4j import AsyncDriver
 
 from app.graph import service
-from app.graph.schemas import EntityInput
+from app.graph.schemas import EntityInput, RelationshipInput
 from app.graph.service import _dt, _entity
 from tests.graph.conftest import FakeNeo4jDriver
 
 _OWNER = str(uuid4())
+_FROM = str(uuid4())
+_TO = str(uuid4())
+_REL = {
+    "id": str(uuid4()),
+    "owner_id": _OWNER,
+    "kind": "employs",
+    "visibility": "private",
+    "created_at": datetime(2026, 1, 1, tzinfo=UTC),
+    "updated_at": datetime(2026, 1, 1, tzinfo=UTC),
+}
 _NODE = {
     "id": str(uuid4()),
     "owner_id": _OWNER,
@@ -72,10 +84,45 @@ async def test_create_entity_serialises_input_and_maps_result() -> None:
     assert params["id"] != ""  # a generated UUID string
 
 
-async def test_list_graph_passes_owner_and_maps_every_row() -> None:
-    driver = FakeNeo4jDriver([{"e": _NODE}, {"e": {**_NODE, "id": str(uuid4()), "name": "Beta"}}])
+async def test_list_graph_passes_owner_and_maps_entities_and_edges() -> None:
+    driver = FakeNeo4jDriver(
+        [{"e": _NODE}, {"e": {**_NODE, "id": str(uuid4()), "name": "Beta"}}],
+        [{"r": _REL, "from_id": _FROM, "to_id": _TO}],
+    )
 
     view = await service.list_graph(cast(AsyncDriver, driver), _OWNER)
 
     assert [e.name for e in view.entities] == ["Acme", "Beta"]
+    assert [r.kind for r in view.relationships] == ["employs"]
     assert driver.calls[0][1] == {"owner_id": _OWNER}
+    assert driver.calls[1][1] == {"owner_id": _OWNER}
+
+
+async def test_create_relationship_serialises_and_maps() -> None:
+    driver = FakeNeo4jDriver([{"r": _REL, "from_id": _FROM, "to_id": _TO}])
+
+    result = await service.create_relationship(
+        cast(AsyncDriver, driver),
+        _OWNER,
+        RelationshipInput(from_id=_FROM, to_id=_TO, kind="employs"),
+    )
+
+    assert str(result.from_id) == _FROM
+    assert str(result.to_id) == _TO
+    assert result.kind == "employs"
+    _, params = driver.calls[0]
+    assert params["from_id"] == _FROM
+    assert params["owner_id"] == _OWNER
+
+
+async def test_create_relationship_404_when_endpoint_not_visible() -> None:
+    driver = FakeNeo4jDriver([])  # the MATCH found nothing
+
+    with pytest.raises(HTTPException) as exc:
+        await service.create_relationship(
+            cast(AsyncDriver, driver),
+            _OWNER,
+            RelationshipInput(from_id=_FROM, to_id=_TO, kind="x"),
+        )
+
+    assert exc.value.status_code == 404

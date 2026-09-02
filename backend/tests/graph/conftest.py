@@ -48,13 +48,20 @@ requires_neo4j = pytest.mark.skipif(not NEO4J_AVAILABLE, reason="neo4j-test not 
 
 
 class FakeRecord:
-    """Stands in for a ``neo4j.Record`` — only ``.data()`` is used by the service."""
+    """Stands in for a ``neo4j.Record`` — accessed by key, like the real thing.
+
+    Nested node/relationship values are plain dicts here; the service's mappers
+    treat a graph ``Node``/``Relationship`` and a dict the same way.
+    """
 
     def __init__(self, data: dict[str, object]) -> None:
         self._data = data
 
-    def data(self, *_keys: str) -> dict[str, object]:
-        return self._data
+    def __getitem__(self, key: str) -> object:
+        return self._data[key]
+
+    def get(self, key: str, default: object = None) -> object:
+        return self._data.get(key, default)
 
 
 class _FakeResult:

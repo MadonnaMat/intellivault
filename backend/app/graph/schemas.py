@@ -41,7 +41,30 @@ class Entity(BaseModel):
     updated_at: datetime
 
 
+class RelationshipInput(BaseModel):
+    """The caller-supplied fields when connecting two entities."""
+
+    from_id: UUID
+    to_id: UUID
+    kind: Kind
+    visibility: Visibility = "private"
+
+
+class Relationship(BaseModel):
+    """A ``RELATED_TO`` edge as returned to the caller."""
+
+    id: UUID
+    owner_id: UUID
+    from_id: UUID
+    to_id: UUID
+    kind: str
+    visibility: Visibility
+    created_at: datetime
+    updated_at: datetime
+
+
 class GraphView(BaseModel):
     """Everything in the graph the caller may see."""
 
     entities: list[Entity]
+    relationships: list[Relationship] = Field(default_factory=list)
