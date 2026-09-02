@@ -113,9 +113,22 @@ async def create_relationship(
     )
     if not rows:
         raise HTTPException(
-            _NOT_FOUND, "One or both entities were not found or are not visible to you"
+            _NOT_FOUND,
+            "Both entities must be visible to you and you must own at least one of them",
         )
     return _relationship(rows[0])
+
+
+async def delete_entity(driver: AsyncDriver, owner_id: str, entity_id: str) -> None:
+    rows = await _run(driver, cypher("delete_entity"), id=entity_id, owner_id=owner_id)
+    if not rows:
+        raise HTTPException(_NOT_FOUND, "Entity not found")
+
+
+async def delete_relationship(driver: AsyncDriver, owner_id: str, relationship_id: str) -> None:
+    rows = await _run(driver, cypher("delete_relationship"), id=relationship_id, owner_id=owner_id)
+    if not rows:
+        raise HTTPException(_NOT_FOUND, "Relationship not found")
 
 
 async def list_graph(driver: AsyncDriver, owner_id: str) -> GraphView:

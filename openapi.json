@@ -943,6 +943,42 @@
         ]
       }
     },
+    "/graph/entities/{entity_id}": {
+      "delete": {
+        "operationId": "delete_entity_graph_entities__entity_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Entity",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
     "/graph/entities/{entity_id}/visibility": {
       "patch": {
         "operationId": "change_entity_visibility_graph_entities__entity_id__visibility_patch",
@@ -1032,6 +1068,42 @@
           }
         },
         "summary": "Create Relationship",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/relationships/{relationship_id}": {
+      "delete": {
+        "operationId": "delete_relationship_graph_relationships__relationship_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "relationship_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Relationship Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Relationship",
         "tags": [
           "graph"
         ]

@@ -116,7 +116,7 @@ async def test_create_relationship_serialises_and_maps() -> None:
 
 
 async def test_create_relationship_404_when_endpoint_not_visible() -> None:
-    driver = FakeNeo4jDriver([])  # the MATCH found nothing
+    driver = FakeNeo4jDriver([])  # the MATCH / ownership WHERE found nothing
 
     with pytest.raises(HTTPException) as exc:
         await service.create_relationship(
@@ -125,6 +125,24 @@ async def test_create_relationship_404_when_endpoint_not_visible() -> None:
             RelationshipInput(from_id=_FROM, to_id=_TO, kind="x"),
         )
 
+    assert exc.value.status_code == 404
+
+
+async def test_delete_entity_ok_and_404() -> None:
+    await service.delete_entity(cast(AsyncDriver, FakeNeo4jDriver([{"id": "e1"}])), _OWNER, "e1")
+
+    with pytest.raises(HTTPException) as exc:
+        await service.delete_entity(cast(AsyncDriver, FakeNeo4jDriver([])), _OWNER, "e1")
+    assert exc.value.status_code == 404
+
+
+async def test_delete_relationship_ok_and_404() -> None:
+    await service.delete_relationship(
+        cast(AsyncDriver, FakeNeo4jDriver([{"id": "r1"}])), _OWNER, "r1"
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.delete_relationship(cast(AsyncDriver, FakeNeo4jDriver([])), _OWNER, "r1")
     assert exc.value.status_code == 404
 
 

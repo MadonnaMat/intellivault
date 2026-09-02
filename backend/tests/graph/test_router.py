@@ -114,6 +114,20 @@ def test_change_visibility_404() -> None:
     assert response.status_code == 404
 
 
+def test_delete_entity_204_then_404() -> None:
+    with graph_client(FakeNeo4jDriver([{"id": "e1"}])) as client:
+        assert client.delete(f"/graph/entities/{uuid4()}").status_code == 204
+    with graph_client(FakeNeo4jDriver([])) as client:
+        assert client.delete(f"/graph/entities/{uuid4()}").status_code == 404
+
+
+def test_delete_relationship_204_then_404() -> None:
+    with graph_client(FakeNeo4jDriver([{"id": "r1"}])) as client:
+        assert client.delete(f"/graph/relationships/{uuid4()}").status_code == 204
+    with graph_client(FakeNeo4jDriver([])) as client:
+        assert client.delete(f"/graph/relationships/{uuid4()}").status_code == 404
+
+
 def test_graph_requires_authentication() -> None:
     with graph_client(FakeNeo4jDriver(), authenticated=False) as client:
         assert client.get("/graph").status_code == 401

@@ -56,3 +56,13 @@ async def change_entity_visibility(
     entity_id: UUID, data: VisibilityChange, driver: Driver, user: CurrentUser
 ) -> VisibilityChangeResult:
     return await service.change_visibility(driver, str(user.id), str(entity_id), data)
+
+
+@router.delete("/entities/{entity_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_entity(entity_id: UUID, driver: Driver, user: CurrentUser) -> None:
+    await service.delete_entity(driver, str(user.id), str(entity_id))
+
+
+@router.delete("/relationships/{relationship_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_relationship(relationship_id: UUID, driver: Driver, user: CurrentUser) -> None:
+    await service.delete_relationship(driver, str(user.id), str(relationship_id))

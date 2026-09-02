@@ -212,6 +212,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/graph/entities/{entity_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Entity */
+        delete: operations["delete_entity_graph_entities__entity_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/graph/entities/{entity_id}/visibility": {
         parameters: {
             query?: never;
@@ -241,6 +258,23 @@ export interface paths {
         /** Create Relationship */
         post: operations["create_relationship_graph_relationships_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/graph/relationships/{relationship_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Relationship */
+        delete: operations["delete_relationship_graph_relationships__relationship_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -932,6 +966,35 @@ export interface operations {
             };
         };
     };
+    delete_entity_graph_entities__entity_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     change_entity_visibility_graph_entities__entity_id__visibility_patch: {
         parameters: {
             query?: never;
@@ -988,6 +1051,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Relationship"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_relationship_graph_relationships__relationship_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                relationship_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

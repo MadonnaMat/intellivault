@@ -101,6 +101,59 @@ async def test_create_relationship_rejects_an_invisible_endpoint(
     assert exc.value.status_code == 404
 
 
+async def test_cannot_link_two_public_entities_you_do_not_own(graph_driver: AsyncDriver) -> None:
+    a = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="a", kind="n", visibility="public")
+    )
+    b = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="b", kind="n", visibility="public")
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await service.create_relationship(
+            graph_driver, _BOB, RelationshipInput(from_id=a.id, to_id=b.id, kind="x")
+        )
+    assert exc.value.status_code == 404
+
+
+async def test_can_link_your_own_entity_to_a_public_one(graph_driver: AsyncDriver) -> None:
+    mine = await service.create_entity(graph_driver, _BOB, EntityInput(name="mine", kind="n"))
+    alices_public = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="pub", kind="n", visibility="public")
+    )
+
+    rel = await service.create_relationship(
+        graph_driver, _BOB, RelationshipInput(from_id=mine.id, to_id=alices_public.id, kind="uses")
+    )
+    assert rel.kind == "uses"
+
+
+async def test_delete_entity_removes_it_and_its_edges(graph_driver: AsyncDriver) -> None:
+    a, b = await _chain(graph_driver, _ALICE, "A", "B")
+
+    await service.delete_entity(graph_driver, _ALICE, a)
+
+    view = await service.list_graph(graph_driver, _ALICE)
+    assert {e.name for e in view.entities} == {"B"}
+    assert view.relationships == []
+
+
+async def test_entity_owner_can_detach_an_edge_another_user_attached(
+    graph_driver: AsyncDriver,
+) -> None:
+    alices = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="a", kind="n", visibility="public")
+    )
+    bobs = await service.create_entity(graph_driver, _BOB, EntityInput(name="b", kind="n"))
+    rel = await service.create_relationship(
+        graph_driver, _BOB, RelationshipInput(from_id=bobs.id, to_id=alices.id, kind="links")
+    )
+
+    # Alice owns an endpoint but not the edge — she can still detach it.
+    await service.delete_relationship(graph_driver, _ALICE, str(rel.id))
+    assert (await service.list_graph(graph_driver, _ALICE)).relationships == []
+
+
 async def test_single_visibility_flip(graph_driver: AsyncDriver) -> None:
     entity = await service.create_entity(graph_driver, _ALICE, EntityInput(name="x", kind="n"))
 
