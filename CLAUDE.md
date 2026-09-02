@@ -57,22 +57,46 @@ Project-level instructions for Claude Code working in this repository.
   browser API, `lib/api.ts` is the session-cookie fetch primitive, `middleware.ts`
   gates on cookie presence for signed-out visitors, and each protected page —
   plus `/login` and `/register` — re-checks `/auth/me` server-side (`lib/session.ts`).
-- **Migrations** use the `yoyo` CLI (plain SQL + `.rollback.sql` in
-  `backend/migrations/`). Nothing runs them automatically —
-  `make migrate` / `docker compose run --rm migrate`.
-- **SQL that doesn't fit on one line** lives in its own `.sql` file next to the
-  code that runs it and is embedded from there (see `app/auth/sql/` +
-  `app/auth/statements.py`), never inlined as a multi-line string literal.
+- **Graph** (`app/graph/`) is the Neo4j knowledge graph: `Entity` nodes and
+  `RELATED_TO` edges, each carrying `owner_id` (= `str(current_user.id)`) and
+  `visibility` (`private`/`public`). Neo4j Community has no property-level RBAC,
+  so **property-level security is enforced in every read's Cypher `WHERE`** —
+  `visibility = 'public' OR owner_id = $owner_id` for nodes; edge + both
+  endpoints for relationships. `tests/graph/test_cypher_predicate.py` fails any
+  `cypher/*.cypher` that reads `:Entity` without that scoping + a `// SECURITY:`
+  note. `PATCH /graph/entities/{id}/visibility` flips one node, or with
+  `cascade=true` the whole caller-owned connected sub-graph (the
+  private→public "merge", symmetric). `service.py` has exactly one
+  `driver.session()` site (`_run`); one compound Cypher statement per call,
+  atomic server-side. Frontend `/graph`: tables + a per-entity visibility
+  `Switch`/cascade `Checkbox` + a Cytoscape.js diagram (`next/dynamic`,
+  `ssr:false`) + a "Load sample graph" injector.
+- **Migrations**: Postgres uses the `yoyo` CLI (plain SQL + `.rollback.sql` in
+  `backend/migrations/`) — `make migrate` / `docker compose run --rm migrate`.
+  Neo4j has no yoyo equivalent, so `app/graph/migrations.py` is a small
+  stand-in: numbered `backend/graph_migrations/NNNN.name.cypher` (+
+  `.rollback.cypher`), applied ids tracked as `(:_GraphMigration)` nodes —
+  `make graph-migrate{,-down,-status}` / `docker compose run --rm graph-migrate`.
+  Nothing runs either automatically.
+- **SQL/Cypher that doesn't fit on one line** lives in its own `.sql` / `.cypher`
+  file next to the code that runs it and is embedded from there (see
+  `app/auth/sql/` + `app/auth/statements.py`, `app/graph/cypher/` +
+  `app/graph/statements.py`), never inlined as a multi-line string literal.
 - **Frontend API types** are generated from the FastAPI OpenAPI schema:
   `backend/scripts/dump_openapi.py` -> committed `openapi.json` ->
   `frontend/src/lib/api-schema.ts`. Never hand-edit either.
 - **Tests use separate databases.** Postgres: `<db>_test` in the same instance
   (created by `docker/initdb`). Neo4j: a disposable `neo4j-test` service under the
-  `test` compose profile. Never point unit/integration tests at the app databases.
+  `test` compose profile — the graph integration tests
+  (`tests/graph/test_integration.py`, `test_migrations.py`) hit it via
+  `NEO4J_TEST_URI`/`NEO4J_TEST_PASSWORD` and self-skip when unreachable; the
+  `graph_driver` fixture wipes + re-migrates per test. Never point
+  unit/integration tests at the app databases.
 - **`frontend/e2e/`** is the Playwright browser suite (`make e2e`, its own CI
-  job) — it drives the real frontend + backend + Postgres, using a CDP virtual
-  authenticator for the passkey ceremonies. It resets the app database per test,
-  so it needs a throwaway stack. `scripts/verify` stays the fast smoke check.
+  job) — it drives the real frontend + backend + Postgres + Neo4j, using a CDP
+  virtual authenticator for the passkey ceremonies. It resets Postgres
+  (`helpers/db.ts`) and the graph (`helpers/graph.ts`, over bolt) per test, so it
+  needs a throwaway stack. `scripts/verify` stays the fast smoke check.
 - Frontend components use **Ant Design**; all antd usage stays in client
   components (the RSC page is plain HTML). Interactive elements carry a
   `data-testid`; vitest and Playwright both query by testid.
@@ -88,7 +112,8 @@ Project-level instructions for Claude Code working in this repository.
 | `make backend-test` | pytest (coverage gate 85%) |
 | `make frontend-lint` | eslint + tsc --noEmit |
 | `make frontend-test` | vitest |
-| `make migrate` / `migrate-down` / `migrate-status` | yoyo |
+| `make migrate` / `migrate-down` / `migrate-status` | yoyo (Postgres) |
+| `make graph-migrate` / `graph-migrate-down` / `graph-migrate-status` | Neo4j graph schema |
 | `make gen-api-types` / `check-api-types` | regenerate / verify the API contract |
 | `make openapi` | rewrite `openapi.json` from the FastAPI app |
 
