@@ -14,6 +14,7 @@ from neo4j import AsyncGraphDatabase
 from app import observability
 from app.auth import auth_router
 from app.config import Settings, get_settings
+from app.graph import graph_router
 from app.health import health_router
 from app.health.checks import CHECK_TIMEOUT_SECONDS, HealthProbes
 
@@ -77,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     observability.setup(app, settings)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(graph_router)
 
     return app
 

@@ -47,6 +47,65 @@ NEO4J_AVAILABLE = _reachable()
 requires_neo4j = pytest.mark.skipif(not NEO4J_AVAILABLE, reason="neo4j-test not reachable")
 
 
+class FakeRecord:
+    """Stands in for a ``neo4j.Record`` — only ``.data()`` is used by the service."""
+
+    def __init__(self, data: dict[str, object]) -> None:
+        self._data = data
+
+    def data(self, *_keys: str) -> dict[str, object]:
+        return self._data
+
+
+class _FakeResult:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self._records = [FakeRecord(row) for row in rows]
+
+    def __aiter__(self) -> _FakeRows:
+        return _FakeRows(self._records)
+
+
+class _FakeRows:
+    def __init__(self, records: list[FakeRecord]) -> None:
+        self._it = iter(records)
+
+    def __aiter__(self) -> _FakeRows:
+        return self
+
+    async def __anext__(self) -> FakeRecord:
+        try:
+            return next(self._it)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+
+class _FakeSession:
+    def __init__(self, driver: FakeNeo4jDriver) -> None:
+        self._driver = driver
+
+    async def __aenter__(self) -> _FakeSession:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> bool:
+        return False
+
+    async def run(self, query: object, **params: object) -> _FakeResult:
+        rows = self._driver._responses.pop(0) if self._driver._responses else []
+        self._driver.calls.append((str(getattr(query, "text", query)), params))
+        return _FakeResult(rows)
+
+
+class FakeNeo4jDriver:
+    """A scripted async driver: each ``session.run`` returns the next queued row list."""
+
+    def __init__(self, *responses: list[dict[str, object]]) -> None:
+        self._responses: list[list[dict[str, object]]] = list(responses)
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    def session(self, **_: object) -> _FakeSession:
+        return _FakeSession(self)
+
+
 @pytest_asyncio.fixture
 async def graph_driver() -> AsyncIterator[AsyncDriver]:
     """A driver against ``neo4j-test`` — graph wiped, migrations applied, per test."""
