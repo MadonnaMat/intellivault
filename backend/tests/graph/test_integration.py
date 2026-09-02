@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from neo4j import AsyncDriver
 
 from app.graph import service
-from app.graph.schemas import EntityInput, RelationshipInput
+from app.graph.schemas import EntityInput, RelationshipInput, VisibilityChange
 from tests.graph.conftest import requires_neo4j
 
 pytestmark = requires_neo4j
@@ -99,3 +99,88 @@ async def test_create_relationship_rejects_an_invisible_endpoint(
         )
 
     assert exc.value.status_code == 404
+
+
+async def test_single_visibility_flip(graph_driver: AsyncDriver) -> None:
+    entity = await service.create_entity(graph_driver, _ALICE, EntityInput(name="x", kind="n"))
+
+    result = await service.change_visibility(
+        graph_driver, _ALICE, str(entity.id), VisibilityChange(visibility="public")
+    )
+
+    assert result.affected_ids == [entity.id]
+    assert {e.name for e in (await service.list_graph(graph_driver, _BOB)).entities} == {"x"}
+
+
+async def test_visibility_change_on_another_users_entity_is_404(graph_driver: AsyncDriver) -> None:
+    bobs = await service.create_entity(graph_driver, _BOB, EntityInput(name="b", kind="n"))
+
+    with pytest.raises(HTTPException) as exc:
+        await service.change_visibility(
+            graph_driver, _ALICE, str(bobs.id), VisibilityChange(visibility="public")
+        )
+
+    assert exc.value.status_code == 404
+
+
+async def _chain(graph_driver: AsyncDriver, owner: str, *names: str) -> list[str]:
+    ids = []
+    previous = None
+    for name in names:
+        entity = await service.create_entity(graph_driver, owner, EntityInput(name=name, kind="n"))
+        ids.append(str(entity.id))
+        if previous is not None:
+            await service.create_relationship(
+                graph_driver, owner, RelationshipInput(from_id=previous, to_id=entity.id, kind="r")
+            )
+        previous = entity.id
+    return ids
+
+
+async def test_cascade_promotes_the_connected_owned_subgraph(graph_driver: AsyncDriver) -> None:
+    a, b, c = await _chain(graph_driver, _ALICE, "A", "B", "C")
+
+    result = await service.change_visibility(
+        graph_driver, _ALICE, a, VisibilityChange(visibility="public", cascade=True)
+    )
+
+    assert {str(i) for i in result.affected_ids} == {a, b, c}
+    bob_view = await service.list_graph(graph_driver, _BOB)
+    assert {e.name for e in bob_view.entities} == {"A", "B", "C"}
+    assert [r.kind for r in bob_view.relationships] == ["r", "r"]  # both edges promoted too
+
+
+async def test_cascade_stops_at_another_owners_node(graph_driver: AsyncDriver) -> None:
+    mine = await service.create_entity(graph_driver, _ALICE, EntityInput(name="mine", kind="n"))
+    bobs_public = await service.create_entity(
+        graph_driver, _BOB, EntityInput(name="bobs", kind="n", visibility="public")
+    )
+    await service.create_relationship(
+        graph_driver, _ALICE, RelationshipInput(from_id=mine.id, to_id=bobs_public.id, kind="r")
+    )
+
+    result = await service.change_visibility(
+        graph_driver, _ALICE, str(mine.id), VisibilityChange(visibility="public", cascade=True)
+    )
+
+    assert {str(i) for i in result.affected_ids} == {str(mine.id)}
+
+
+async def test_cascade_demote_is_symmetric(graph_driver: AsyncDriver) -> None:
+    a = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="A", kind="n", visibility="public")
+    )
+    b = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="B", kind="n", visibility="public")
+    )
+    await service.create_relationship(
+        graph_driver,
+        _ALICE,
+        RelationshipInput(from_id=a.id, to_id=b.id, kind="r", visibility="public"),
+    )
+
+    await service.change_visibility(
+        graph_driver, _ALICE, str(a.id), VisibilityChange(visibility="private", cascade=True)
+    )
+
+    assert (await service.list_graph(graph_driver, _BOB)).entities == []

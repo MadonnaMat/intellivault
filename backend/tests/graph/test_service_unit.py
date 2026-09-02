@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from neo4j import AsyncDriver
 
 from app.graph import service
-from app.graph.schemas import EntityInput, RelationshipInput
+from app.graph.schemas import EntityInput, RelationshipInput, VisibilityChange
 from app.graph.service import _dt, _entity
 from tests.graph.conftest import FakeNeo4jDriver
 
@@ -123,6 +123,58 @@ async def test_create_relationship_404_when_endpoint_not_visible() -> None:
             cast(AsyncDriver, driver),
             _OWNER,
             RelationshipInput(from_id=_FROM, to_id=_TO, kind="x"),
+        )
+
+    assert exc.value.status_code == 404
+
+
+async def test_change_visibility_single_flip() -> None:
+    node_id = str(uuid4())
+    driver = FakeNeo4jDriver([{"id": node_id}])
+
+    result = await service.change_visibility(
+        cast(AsyncDriver, driver), _OWNER, node_id, VisibilityChange(visibility="public")
+    )
+
+    assert [str(i) for i in result.affected_ids] == [node_id]
+    assert driver.calls[0][1] == {"id": node_id, "owner_id": _OWNER, "visibility": "public"}
+
+
+async def test_change_visibility_single_flip_404() -> None:
+    driver = FakeNeo4jDriver([])
+
+    with pytest.raises(HTTPException) as exc:
+        await service.change_visibility(
+            cast(AsyncDriver, driver), _OWNER, str(uuid4()), VisibilityChange(visibility="public")
+        )
+
+    assert exc.value.status_code == 404
+
+
+async def test_change_visibility_cascade_flips_nodes_then_edges() -> None:
+    ids = [str(uuid4()), str(uuid4())]
+    driver = FakeNeo4jDriver([{"affected_ids": ids}], [{"updated": 1}])
+
+    result = await service.change_visibility(
+        cast(AsyncDriver, driver),
+        _OWNER,
+        ids[0],
+        VisibilityChange(visibility="public", cascade=True),
+    )
+
+    assert [str(i) for i in result.affected_ids] == ids
+    assert driver.calls[1][1] == {"ids": ids, "owner_id": _OWNER, "visibility": "public"}
+
+
+async def test_change_visibility_cascade_404_when_start_missing() -> None:
+    driver = FakeNeo4jDriver([])  # start node didn't match
+
+    with pytest.raises(HTTPException) as exc:
+        await service.change_visibility(
+            cast(AsyncDriver, driver),
+            _OWNER,
+            str(uuid4()),
+            VisibilityChange(visibility="public", cascade=True),
         )
 
     assert exc.value.status_code == 404

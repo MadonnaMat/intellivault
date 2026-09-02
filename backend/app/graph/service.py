@@ -24,6 +24,8 @@ from app.graph.schemas import (
     GraphView,
     Relationship,
     RelationshipInput,
+    VisibilityChange,
+    VisibilityChangeResult,
 )
 from app.graph.statements import cypher
 
@@ -123,3 +125,45 @@ async def list_graph(driver: AsyncDriver, owner_id: str) -> GraphView:
         entities=[_entity(row["e"]) for row in entity_rows],
         relationships=[_relationship(row) for row in relationship_rows],
     )
+
+
+async def _cascade_visibility(
+    driver: AsyncDriver, owner_id: str, entity_id: str, visibility: str
+) -> list[Any]:
+    node_rows = await _run(
+        driver,
+        cypher("promote_subgraph_nodes"),
+        id=entity_id,
+        owner_id=owner_id,
+        visibility=visibility,
+    )
+    affected: list[Any] = node_rows[0]["affected_ids"] if node_rows else []
+    if not affected:
+        raise HTTPException(_NOT_FOUND, "Entity not found")
+    await _run(
+        driver,
+        cypher("promote_subgraph_edges"),
+        ids=affected,
+        owner_id=owner_id,
+        visibility=visibility,
+    )
+    return affected
+
+
+async def change_visibility(
+    driver: AsyncDriver, owner_id: str, entity_id: str, change: VisibilityChange
+) -> VisibilityChangeResult:
+    if change.cascade:
+        affected = await _cascade_visibility(driver, owner_id, entity_id, change.visibility)
+        return VisibilityChangeResult(affected_ids=affected)
+
+    rows = await _run(
+        driver,
+        cypher("set_entity_visibility"),
+        id=entity_id,
+        owner_id=owner_id,
+        visibility=change.visibility,
+    )
+    if not rows:
+        raise HTTPException(_NOT_FOUND, "Entity not found")
+    return VisibilityChangeResult(affected_ids=[rows[0]["id"]])

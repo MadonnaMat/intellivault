@@ -8,6 +8,7 @@ Cypher ``WHERE`` clause.
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 from neo4j import AsyncDriver
@@ -22,6 +23,8 @@ from app.graph.schemas import (
     GraphView,
     Relationship,
     RelationshipInput,
+    VisibilityChange,
+    VisibilityChangeResult,
 )
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -46,3 +49,10 @@ async def create_relationship(
     data: RelationshipInput, driver: Driver, user: CurrentUser
 ) -> Relationship:
     return await service.create_relationship(driver, str(user.id), data)
+
+
+@router.patch("/entities/{entity_id}/visibility")
+async def change_entity_visibility(
+    entity_id: UUID, data: VisibilityChange, driver: Driver, user: CurrentUser
+) -> VisibilityChangeResult:
+    return await service.change_visibility(driver, str(user.id), str(entity_id), data)

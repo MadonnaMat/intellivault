@@ -479,6 +479,47 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VisibilityChange": {
+        "description": "Flip an entity's visibility, optionally cascading to its sub-graph.",
+        "properties": {
+          "cascade": {
+            "default": false,
+            "title": "Cascade",
+            "type": "boolean"
+          },
+          "visibility": {
+            "enum": [
+              "private",
+              "public"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "visibility"
+        ],
+        "title": "VisibilityChange",
+        "type": "object"
+      },
+      "VisibilityChangeResult": {
+        "description": "The ids of every entity whose visibility actually changed.",
+        "properties": {
+          "affected_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Affected Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "affected_ids"
+        ],
+        "title": "VisibilityChangeResult",
+        "type": "object"
       }
     }
   },
@@ -897,6 +938,59 @@
           }
         },
         "summary": "Create Entity",
+        "tags": [
+          "graph"
+        ]
+      }
+    },
+    "/graph/entities/{entity_id}/visibility": {
+      "patch": {
+        "operationId": "change_entity_visibility_graph_entities__entity_id__visibility_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisibilityChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisibilityChangeResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Entity Visibility",
         "tags": [
           "graph"
         ]

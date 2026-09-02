@@ -96,6 +96,24 @@ def test_create_relationship_404_when_endpoint_not_visible() -> None:
     assert response.status_code == 404
 
 
+def test_change_visibility_returns_affected_ids() -> None:
+    node_id = str(uuid4())
+    with graph_client(FakeNeo4jDriver([{"id": node_id}])) as client:
+        response = client.patch(
+            f"/graph/entities/{node_id}/visibility", json={"visibility": "public"}
+        )
+    assert response.status_code == 200
+    assert response.json()["affected_ids"] == [node_id]
+
+
+def test_change_visibility_404() -> None:
+    with graph_client(FakeNeo4jDriver([])) as client:
+        response = client.patch(
+            f"/graph/entities/{uuid4()}/visibility", json={"visibility": "private"}
+        )
+    assert response.status_code == 404
+
+
 def test_graph_requires_authentication() -> None:
     with graph_client(FakeNeo4jDriver(), authenticated=False) as client:
         assert client.get("/graph").status_code == 401

@@ -68,3 +68,18 @@ class GraphView(BaseModel):
 
     entities: list[Entity]
     relationships: list[Relationship] = Field(default_factory=list)
+
+
+class VisibilityChange(BaseModel):
+    """Flip an entity's visibility, optionally cascading to its sub-graph."""
+
+    visibility: Visibility
+    # When true, also flip every caller-owned entity reachable from this one
+    # over caller-owned relationships, and the caller-owned edges among them.
+    cascade: bool = False
+
+
+class VisibilityChangeResult(BaseModel):
+    """The ids of every entity whose visibility actually changed."""
+
+    affected_ids: list[UUID]

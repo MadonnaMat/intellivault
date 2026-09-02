@@ -212,6 +212,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/graph/entities/{entity_id}/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change Entity Visibility */
+        patch: operations["change_entity_visibility_graph_entities__entity_id__visibility_patch"];
+        trace?: never;
+    };
     "/graph/relationships": {
         parameters: {
             query?: never;
@@ -526,6 +543,30 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * VisibilityChange
+         * @description Flip an entity's visibility, optionally cascading to its sub-graph.
+         */
+        VisibilityChange: {
+            /**
+             * Cascade
+             * @default false
+             */
+            cascade: boolean;
+            /**
+             * Visibility
+             * @enum {string}
+             */
+            visibility: "private" | "public";
+        };
+        /**
+         * VisibilityChangeResult
+         * @description The ids of every entity whose visibility actually changed.
+         */
+        VisibilityChangeResult: {
+            /** Affected Ids */
+            affected_ids: string[];
         };
     };
     responses: never;
@@ -878,6 +919,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Entity"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_entity_visibility_graph_entities__entity_id__visibility_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisibilityChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisibilityChangeResult"];
                 };
             };
             /** @description Validation Error */
