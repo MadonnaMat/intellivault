@@ -1,0 +1,22 @@
+{
+  "fixtures": [
+    {
+      "match": { "systemMessage": "research planner" },
+      "response": {
+        "content": "{\"summary\": \"Trace the people and the lab behind the transistor.\", \"queries\": [\"Bell Labs point-contact transistor 1947\", \"Bardeen Brattain Shockley transistor\"]}"
+      }
+    },
+    {
+      "match": { "systemMessage": "research analyst" },
+      "response": {
+        "content": "The point-contact transistor was demonstrated at Bell Labs in December 1947 by John Bardeen and Walter Brattain, under William Shockley."
+      }
+    },
+    {
+      "match": { "systemMessage": "Extract entities and relationships" },
+      "response": {
+        "content": "{\"entities\": [{\"temp_id\": \"e1\", \"name\": \"Bell Labs\", \"kind\": \"organization\"}, {\"temp_id\": \"e2\", \"name\": \"William Shockley\", \"kind\": \"person\"}, {\"temp_id\": \"e3\", \"name\": \"John Bardeen\", \"kind\": \"person\"}], \"relationships\": [{\"from_ref\": \"e2\", \"to_ref\": \"e1\", \"kind\": \"worked_at\"}, {\"from_ref\": \"e3\", \"to_ref\": \"e1\", \"kind\": \"worked_at\"}]}"
+      }
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# Overlay for the Playwright suite:
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml ...
+#
+# Swaps the agent worker's Ollama + web-search MCP for a single `mock-ai`
+# container (CopilotKit aimock) so the whole agent loop runs end to end with no
+# GPU and no network. Everything else (Postgres, Neo4j, Redis) is real.
+services:
+  mock-ai:
+    image: ghcr.io/copilotkit/aimock:latest
+    # The image's default entrypoint is the narrower `llmock` CLI (no --config,
+    # no MCP). Run the full aimock CLI so MCPMock is mounted at /mcp.
+    entrypoint: ["node", "/app/dist/aimock-cli.js", "--config", "/fixtures/aimock.json"]
+    volumes:
+      - ./docker/mock-ai:/fixtures:ro
+    ports:
+      - "${MOCK_AI_PORT:-4010}:4010"
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "require('http').get('http://127.0.0.1:4010/api/tags',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 3s
+
+  agent-worker:
+    environment:
+      OLLAMA_URL: http://mock-ai:4010
+      AGENT_SEARCH_MCP_URL: http://mock-ai:4010/mcp

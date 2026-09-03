@@ -1,0 +1,24 @@
+{
+  "port": 4010,
+  "host": "0.0.0.0",
+  "strict": false,
+  "llm": {
+    "fixtures": "/fixtures/llm.json"
+  },
+  "mcp": {
+    "path": "/mcp",
+    "serverInfo": { "name": "searxng", "version": "1.0.0" },
+    "tools": [
+      {
+        "name": "search",
+        "description": "Web search over SearXNG",
+        "inputSchema": {
+          "type": "object",
+          "properties": { "query": { "type": "string" } },
+          "required": ["query"]
+        },
+        "result": "[{\"url\": \"https://sources.mock.test/transistor\", \"title\": \"The invention of the transistor\", \"content\": \"Bell Labs, 1947 — Bardeen, Brattain, Shockley.\"}]"
+      }
+    ]
+  }
+}

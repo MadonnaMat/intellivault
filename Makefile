@@ -31,14 +31,16 @@ logs:
 verify:
 	./scripts/verify
 
-# Full browser end-to-end suite (Playwright). Brings the stack up, then drives
-# registration / login / account flows against the real frontend + backend.
-# NOTE: truncates the app database.
+# Full browser end-to-end suite (Playwright). Brings the stack up — including
+# the agent worker wired to the mock-ai container (docker-compose.e2e.yml) —
+# then drives the real frontend + backend. NOTE: truncates the app database.
+DC_E2E = docker compose -f docker-compose.yml -f docker-compose.e2e.yml
 e2e:
-	docker compose up -d --wait postgres neo4j phoenix
-	docker compose run --rm migrate
-	docker compose run --rm graph-migrate
-	docker compose up -d --wait backend frontend
+	$(DC_E2E) up -d --wait postgres neo4j phoenix redis mock-ai
+	$(DC_E2E) run --rm migrate
+	$(DC_E2E) run --rm graph-migrate
+	$(DC_E2E) up -d --wait backend frontend
+	$(DC_E2E) up -d --no-deps agent-worker
 	cd frontend && $(PNPM) exec playwright install --with-deps chromium
 	cd frontend && $(PNPM) e2e
 
