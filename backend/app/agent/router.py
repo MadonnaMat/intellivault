@@ -14,7 +14,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, status
 
 from app.agent import service
-from app.agent.schemas import AgentRun, AgentRunCreate, AgentRunSummary
+from app.agent.schemas import AgentRun, AgentRunCreate, AgentRunReview, AgentRunSummary
 from app.auth.dependencies import current_user
 from app.auth.schemas import SessionUser
 from app.db import get_pool
@@ -40,3 +40,12 @@ async def list_runs(pool: Pool, user: CurrentUser) -> list[AgentRunSummary]:
 @router.get("/runs/{run_id}")
 async def get_run(run_id: UUID, pool: Pool, user: CurrentUser) -> AgentRun:
     return await service.get_run(pool, user.id, run_id)
+
+
+@router.post("/runs/{run_id}/review")
+async def review_run(run_id: UUID, data: AgentRunReview, pool: Pool, user: CurrentUser) -> AgentRun:
+    """Approve (optionally editing the drafts) or reject a run awaiting review."""
+    run = await service.submit_review(pool, user.id, run_id, data)
+    if data.decision == "approve":
+        await service.enqueue_commit(run.id)
+    return run

@@ -14,7 +14,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-AgentRunStatus = Literal["queued", "running", "succeeded", "failed"]
+AgentRunStatus = Literal["queued", "running", "awaiting_review", "succeeded", "failed", "cancelled"]
 
 Topic = Annotated[str, Field(min_length=3, max_length=500)]
 _Name = Annotated[str, Field(min_length=1, max_length=200)]
@@ -135,6 +135,20 @@ class AgentRun(AgentRunSummary):
     current_node: str | None = None
     plan: Plan | None = None
     result: AgentRunResult | None = None
+    # the drafted entities awaiting approval (status == "awaiting_review")
+    pending: StructuredResult | None = None
     committed_entity_ids: list[UUID] = Field(default_factory=list)
     committed_relationship_ids: list[UUID] = Field(default_factory=list)
     error: str | None = None
+
+
+class AgentRunReview(BaseModel):
+    """Approve or reject the drafted entities of a run awaiting review.
+
+    ``entities`` / ``relationships`` override the draft when approving (edit
+    before commit); omit them to commit the draft as-is.
+    """
+
+    decision: Literal["approve", "reject"]
+    entities: list[DraftEntity] | None = None
+    relationships: list[DraftRelationship] | None = None

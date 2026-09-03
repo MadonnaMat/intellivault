@@ -73,6 +73,16 @@
             "title": "Id",
             "type": "string"
           },
+          "pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructuredResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "plan": {
             "anyOf": [
               {
@@ -97,8 +107,10 @@
             "enum": [
               "queued",
               "running",
+              "awaiting_review",
               "succeeded",
-              "failed"
+              "failed",
+              "cancelled"
             ],
             "title": "Status",
             "type": "string"
@@ -170,6 +182,52 @@
         "title": "AgentRunResult",
         "type": "object"
       },
+      "AgentRunReview": {
+        "description": "Approve or reject the drafted entities of a run awaiting review.\n\n``entities`` / ``relationships`` override the draft when approving (edit\nbefore commit); omit them to commit the draft as-is.",
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "entities": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DraftEntity"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entities"
+          },
+          "relationships": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DraftRelationship"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relationships"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "AgentRunReview",
+        "type": "object"
+      },
       "AgentRunSummary": {
         "description": "One run in the list view.",
         "properties": {
@@ -187,8 +245,10 @@
             "enum": [
               "queued",
               "running",
+              "awaiting_review",
               "succeeded",
-              "failed"
+              "failed",
+              "cancelled"
             ],
             "title": "Status",
             "type": "string"
@@ -258,6 +318,77 @@
           "transports"
         ],
         "title": "CredentialSummary",
+        "type": "object"
+      },
+      "DraftEntity": {
+        "description": "A structure-node candidate. ``existing_id`` set \u21d2 link, don't create.",
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "existing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Id"
+          },
+          "kind": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "temp_id": {
+            "title": "Temp Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "temp_id",
+          "name",
+          "kind"
+        ],
+        "title": "DraftEntity",
+        "type": "object"
+      },
+      "DraftRelationship": {
+        "description": "An edge between two drafts (``from_ref``/``to_ref`` = a temp_id or a UUID).",
+        "properties": {
+          "from_ref": {
+            "title": "From Ref",
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "to_ref": {
+            "title": "To Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_ref",
+          "to_ref",
+          "kind"
+        ],
+        "title": "DraftRelationship",
         "type": "object"
       },
       "Entity": {
@@ -624,6 +755,26 @@
         "title": "SessionUser",
         "type": "object"
       },
+      "StructuredResult": {
+        "properties": {
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/DraftEntity"
+            },
+            "title": "Entities",
+            "type": "array"
+          },
+          "relationships": {
+            "items": {
+              "$ref": "#/components/schemas/DraftRelationship"
+            },
+            "title": "Relationships",
+            "type": "array"
+          }
+        },
+        "title": "StructuredResult",
+        "type": "object"
+      },
       "UpdateAccountRequest": {
         "properties": {
           "display_name": {
@@ -846,6 +997,60 @@
           }
         },
         "summary": "Get Run",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/agent/runs/{run_id}/review": {
+      "post": {
+        "description": "Approve (optionally editing the drafts) or reject a run awaiting review.",
+        "operationId": "review_run_agent_runs__run_id__review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRunReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review Run",
         "tags": [
           "agent"
         ]

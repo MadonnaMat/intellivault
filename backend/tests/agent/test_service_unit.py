@@ -9,7 +9,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.agent import service
-from app.agent.schemas import AgentRunCreate, AgentRunResult, Plan
+from app.agent.schemas import AgentRunCreate, AgentRunResult, AgentRunReview, Plan
 from tests.agent.conftest import FakePool, as_pool, find_call, make_run_row
 
 
@@ -130,3 +130,57 @@ async def test_enqueue_run_kicks_the_task(stub_task_kick: list[str]) -> None:
     run_id = uuid4()
     await service.enqueue_run(run_id)
     assert stub_task_kick == [str(run_id)]
+
+
+async def test_submit_review_approve_stores_edited_drafts() -> None:
+    user_id, run_id = uuid4(), uuid4()
+    row = make_run_row(
+        id=run_id, status="awaiting_review", pending={"entities": [], "relationships": []}
+    )
+    pool = FakePool(fetchrow=[row, make_run_row(id=run_id, status="running")])
+    review = AgentRunReview.model_validate(
+        {"decision": "approve", "entities": [{"temp_id": "e1", "name": "X", "kind": "org"}]}
+    )
+    run = await service.submit_review(as_pool(pool), user_id, run_id, review)
+
+    assert run.status == "running"
+    _q, args = find_call(pool, "status = 'running'")
+    assert json.loads(args[1])["entities"][0]["name"] == "X"
+
+
+async def test_submit_review_reject_cancels() -> None:
+    run_id = uuid4()
+    pool = FakePool(
+        fetchrow=[
+            make_run_row(id=run_id, status="awaiting_review"),
+            make_run_row(id=run_id, status="cancelled"),
+        ]
+    )
+    run = await service.submit_review(
+        as_pool(pool), uuid4(), run_id, AgentRunReview(decision="reject")
+    )
+    assert run.status == "cancelled"
+
+
+async def test_submit_review_409_when_not_awaiting() -> None:
+    pool = FakePool(fetchrow=make_run_row(status="succeeded"))
+    with pytest.raises(HTTPException) as exc:
+        await service.submit_review(
+            as_pool(pool), uuid4(), uuid4(), AgentRunReview(decision="approve")
+        )
+    assert exc.value.status_code == 409
+
+
+async def test_submit_review_404_when_missing() -> None:
+    with pytest.raises(HTTPException) as exc:
+        await service.submit_review(
+            as_pool(FakePool(fetchrow=None)), uuid4(), uuid4(), AgentRunReview(decision="approve")
+        )
+    assert exc.value.status_code == 404
+
+
+async def test_load_pending_parses_the_column() -> None:
+    pending = json.dumps({"entities": [{"temp_id": "e1", "name": "P", "kind": "n"}]})
+    pool = FakePool(fetchval=pending)
+    result = await service.load_pending(as_pool(pool), uuid4())
+    assert result.entities[0].name == "P"

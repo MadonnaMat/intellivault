@@ -59,6 +59,8 @@ def test_agent_defaults() -> None:
     assert settings.agent_worker_concurrency == 4
     assert settings.agent_search_retries == 1
     assert settings.agent_critique_retries == 1
+    assert settings.agent_review_required is False
+    assert _make(AGENT_REVIEW_REQUIRED="true").agent_review_required is True
 
 
 def test_agent_overrides_from_env() -> None:

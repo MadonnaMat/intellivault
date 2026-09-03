@@ -67,6 +67,43 @@ def test_get_run_200_then_404() -> None:
         assert client.get(f"/agent/runs/{uuid4()}").status_code == 404
 
 
+def test_review_approve_enqueues_commit(stub_commit_kick: list[str]) -> None:
+    run_id = uuid4()
+    empty: dict[str, list[object]] = {"entities": [], "relationships": []}
+    awaiting = make_run_row(id=run_id, status="awaiting_review", pending=empty)
+    running = make_run_row(id=run_id, status="running")
+    pool = FakePool(fetchrow=[awaiting, running])
+    with agent_client(pool) as client:
+        response = client.post(f"/agent/runs/{run_id}/review", json={"decision": "approve"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "running"
+    assert stub_commit_kick == [str(run_id)]
+
+
+def test_review_reject_does_not_enqueue(stub_commit_kick: list[str]) -> None:
+    run_id = uuid4()
+    pool = FakePool(
+        fetchrow=[
+            make_run_row(id=run_id, status="awaiting_review"),
+            make_run_row(id=run_id, status="cancelled"),
+        ]
+    )
+    with agent_client(pool) as client:
+        response = client.post(f"/agent/runs/{run_id}/review", json={"decision": "reject"})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert stub_commit_kick == []
+
+
+def test_review_409_when_not_awaiting() -> None:
+    run_id = uuid4()
+    with agent_client(FakePool(fetchrow=make_run_row(id=run_id, status="succeeded"))) as client:
+        response = client.post(f"/agent/runs/{run_id}/review", json={"decision": "approve"})
+    assert response.status_code == 409
+
+
 def test_agent_requires_authentication() -> None:
     with agent_client(FakePool(), authenticated=False) as client:
         assert client.post("/agent/runs", json={"topic": "anything at all"}).status_code == 401

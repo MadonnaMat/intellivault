@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     # weak draft back to `structure`.
     agent_search_retries: int = 1
     agent_critique_retries: int = 1
+    # When true, a run pauses after `lookup` at status=awaiting_review; the
+    # drafted entities are only committed once POST /agent/runs/{id}/review
+    # approves them.
+    agent_review_required: bool = False
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

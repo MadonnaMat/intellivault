@@ -91,9 +91,13 @@ def _route_after_critique(deps: AgentDeps) -> Callable[[AgentState], str]:
     return route
 
 
-def build_graph(deps: AgentDeps) -> CompiledStateGraph[Any, Any, Any, Any]:
+def build_graph(deps: AgentDeps, *, review: bool = False) -> CompiledStateGraph[Any, Any, Any, Any]:
+    """The research graph. With ``review=True`` it ends at ``lookup`` — the task
+    persists the drafts and stops until an approval resumes the commit phase
+    (:func:`app.agent.tasks._commit_agent_run`)."""
     builder: StateGraph[Any, Any, Any, Any] = StateGraph(AgentState)
-    for name, fn in _NODES:
+    nodes = _NODES if not review else [n for n in _NODES if n[0] not in {"commit", "enrich"}]
+    for name, fn in nodes:
         builder.add_node(name, _bind(fn, deps))  # type: ignore[call-overload]
 
     builder.add_edge(START, "plan")
@@ -106,9 +110,12 @@ def build_graph(deps: AgentDeps) -> CompiledStateGraph[Any, Any, Any, Any]:
     builder.add_edge("synthesize", "structure")
     builder.add_edge("structure", "critique")
     builder.add_conditional_edges("critique", _route_after_critique(deps), ["structure", "lookup"])
-    builder.add_edge("lookup", "commit")
-    builder.add_edge("commit", "enrich")
-    builder.add_edge("enrich", END)
+    if review:
+        builder.add_edge("lookup", END)
+    else:
+        builder.add_edge("lookup", "commit")
+        builder.add_edge("commit", "enrich")
+        builder.add_edge("enrich", END)
     return builder.compile()
 
 

@@ -16,10 +16,19 @@ import asyncpg
 from fastapi import HTTPException, status
 from pydantic import BaseModel
 
-from app.agent.schemas import AgentRun, AgentRunCreate, AgentRunResult, AgentRunSummary, Plan
+from app.agent.schemas import (
+    AgentRun,
+    AgentRunCreate,
+    AgentRunResult,
+    AgentRunReview,
+    AgentRunSummary,
+    Plan,
+    StructuredResult,
+)
 from app.agent.statements import sql
 
 _NOT_FOUND = status.HTTP_404_NOT_FOUND
+_CONFLICT = status.HTTP_409_CONFLICT
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +68,7 @@ def _run(row: asyncpg.Record) -> AgentRun:
         current_node=row["current_node"],
         plan=_load(row["plan"], Plan),
         result=_load(row["result"], AgentRunResult),
+        pending=_load(row["pending"], StructuredResult),
         committed_entity_ids=list(row["committed_entity_ids"]),
         committed_relationship_ids=list(row["committed_relationship_ids"]),
         error=row["error"],
@@ -88,12 +98,42 @@ async def list_runs(pool: asyncpg.Pool, user_id: UUID) -> list[AgentRunSummary]:
     return [_summary(row) for row in rows]
 
 
+async def submit_review(
+    pool: asyncpg.Pool, user_id: UUID, run_id: UUID, review: AgentRunReview
+) -> AgentRun:
+    """Approve (optionally with edits) or reject a run that's ``awaiting_review``."""
+    row = await pool.fetchrow(sql("get_run"), run_id, user_id)
+    if row is None:
+        raise HTTPException(_NOT_FOUND, "Run not found")
+    if row["status"] != "awaiting_review":
+        raise HTTPException(_CONFLICT, f"Run is {row['status']}, not awaiting review")
+
+    if review.decision == "reject":
+        updated = await pool.fetchrow(sql("mark_cancelled"), run_id)
+    else:
+        pending = _load(row["pending"], StructuredResult) or StructuredResult()
+        if review.entities is not None:
+            pending = pending.model_copy(update={"entities": review.entities})
+        if review.relationships is not None:
+            pending = pending.model_copy(update={"relationships": review.relationships})
+        updated = await pool.fetchrow(sql("approve_review"), run_id, pending.model_dump_json())
+    assert updated is not None
+    return _run(updated)
+
+
 async def enqueue_run(run_id: UUID) -> None:
     """Hand the run to the taskiq worker. Imported lazily so the gateway's import
     path never pulls in langgraph."""
     from app.agent.tasks import run_agent
 
     await run_agent.kiq(str(run_id))
+
+
+async def enqueue_commit(run_id: UUID) -> None:
+    """Hand an approved run to the worker for its commit phase (lazy import)."""
+    from app.agent.tasks import commit_agent_run
+
+    await commit_agent_run.kiq(str(run_id))
 
 
 # --- worker write path ------------------------------------------------------
@@ -108,8 +148,18 @@ async def get_run_internal(pool: asyncpg.Pool, run_id: UUID) -> AgentRunMeta:
     )
 
 
+async def load_pending(pool: asyncpg.Pool, run_id: UUID) -> StructuredResult:
+    """The drafts an approved run should commit."""
+    raw = await pool.fetchval(sql("get_pending"), run_id)
+    return _load(raw, StructuredResult) or StructuredResult()
+
+
 async def mark_running(pool: asyncpg.Pool, run_id: UUID) -> None:
     await pool.execute(sql("mark_running"), run_id)
+
+
+async def mark_awaiting_review(pool: asyncpg.Pool, run_id: UUID, pending: StructuredResult) -> None:
+    await pool.execute(sql("mark_awaiting_review"), run_id, pending.model_dump_json())
 
 
 async def record_node(

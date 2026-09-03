@@ -39,6 +39,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agent/runs/{run_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review Run
+         * @description Approve (optionally editing the drafts) or reject a run awaiting review.
+         */
+        post: operations["review_run_agent_runs__run_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/credentials": {
         parameters: {
             query?: never;
@@ -391,13 +411,14 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            pending?: components["schemas"]["StructuredResult"] | null;
             plan?: components["schemas"]["Plan"] | null;
             result?: components["schemas"]["AgentRunResult"] | null;
             /**
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "succeeded" | "failed";
+            status: "queued" | "running" | "awaiting_review" | "succeeded" | "failed" | "cancelled";
             /** Topic */
             topic: string;
             /**
@@ -429,6 +450,24 @@ export interface components {
             skipped?: string[];
         };
         /**
+         * AgentRunReview
+         * @description Approve or reject the drafted entities of a run awaiting review.
+         *
+         *     ``entities`` / ``relationships`` override the draft when approving (edit
+         *     before commit); omit them to commit the draft as-is.
+         */
+        AgentRunReview: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Entities */
+            entities?: components["schemas"]["DraftEntity"][] | null;
+            /** Relationships */
+            relationships?: components["schemas"]["DraftRelationship"][] | null;
+        };
+        /**
          * AgentRunSummary
          * @description One run in the list view.
          */
@@ -447,7 +486,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "running" | "succeeded" | "failed";
+            status: "queued" | "running" | "awaiting_review" | "succeeded" | "failed" | "cancelled";
             /** Topic */
             topic: string;
             /**
@@ -477,6 +516,36 @@ export interface components {
             name: string;
             /** Transports */
             transports: string[];
+        };
+        /**
+         * DraftEntity
+         * @description A structure-node candidate. ``existing_id`` set ⇒ link, don't create.
+         */
+        DraftEntity: {
+            /** Attributes */
+            attributes?: {
+                [key: string]: unknown;
+            };
+            /** Existing Id */
+            existing_id?: string | null;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Temp Id */
+            temp_id: string;
+        };
+        /**
+         * DraftRelationship
+         * @description An edge between two drafts (``from_ref``/``to_ref`` = a temp_id or a UUID).
+         */
+        DraftRelationship: {
+            /** From Ref */
+            from_ref: string;
+            /** Kind */
+            kind: string;
+            /** To Ref */
+            to_ref: string;
         };
         /**
          * Entity
@@ -691,6 +760,13 @@ export interface components {
              */
             id: string;
         };
+        /** StructuredResult */
+        StructuredResult: {
+            /** Entities */
+            entities?: components["schemas"]["DraftEntity"][];
+            /** Relationships */
+            relationships?: components["schemas"]["DraftRelationship"][];
+        };
         /** UpdateAccountRequest */
         UpdateAccountRequest: {
             /** Display Name */
@@ -807,6 +883,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_run_agent_runs__run_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunReview"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

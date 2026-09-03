@@ -65,6 +65,7 @@ def test_apply_then_rollback(clean_db: None) -> None:
     assert "0002.auth-webauthn" in applied
     assert "0003.registration-challenge-and-indexes" in applied
     assert "0004.agent-runs" in applied
+    assert "0005.agent-run-review" in applied
 
     _yoyo("rollback", "--all")
     assert _yoyo("list").stdout.count("\nA ") == 0

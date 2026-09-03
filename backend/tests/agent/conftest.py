@@ -41,6 +41,21 @@ def stub_task_kick(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return kicked
 
 
+@pytest.fixture(autouse=True)
+def stub_commit_kick(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Never enqueue a real commit job — record run ids handed to commit_agent_run.kiq."""
+    from app.agent.tasks import commit_agent_run
+
+    kicked: list[str] = []
+
+    async def _kiq(*args: Any, **_kwargs: Any) -> Any:
+        kicked.append(str(args[0]))
+        return SimpleNamespace(task_id="fake-task-id")
+
+    monkeypatch.setattr(commit_agent_run, "kiq", _kiq)
+    return kicked
+
+
 _TEST_SETTINGS = Settings(
     _env_file=None,
     NEO4J_PASSWORD="n",
@@ -156,9 +171,11 @@ class FakePool:
         *,
         fetchrow: Row | list[Row] | Callable[[], Any] | None = None,
         fetch: list[Row] | Callable[[], Any] | None = None,
+        fetchval: Any = None,
     ) -> None:
         self._fetchrow = fetchrow
         self._fetch = fetch if fetch is not None else []
+        self._fetchval = fetchval
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
     async def fetchrow(self, query: str, *args: Any) -> Any:
@@ -169,6 +186,10 @@ class FakePool:
         if isinstance(value, list):  # a scripted sequence, one row per call
             return value.pop(0) if value else None
         return value
+
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        self.calls.append((query, args))
+        return self._fetchval() if callable(self._fetchval) else self._fetchval
 
     async def fetch(self, query: str, *args: Any) -> Any:
         self.calls.append((query, args))
@@ -188,9 +209,10 @@ def fake_infra(
     embedder: FakeEmbedder | None = None,
     search_tool: FakeSearchTool | None = None,
     http_client: httpx.AsyncClient | None = None,
+    settings: Settings | None = None,
 ) -> WorkerInfra:
     return WorkerInfra(
-        settings=_TEST_SETTINGS,
+        settings=settings or _TEST_SETTINGS,
         pg_pool=cast(asyncpg.Pool, pool),
         neo4j_driver=driver,
         http_client=http_client or cast(httpx.AsyncClient, object()),
@@ -268,6 +290,7 @@ def make_run_row(**overrides: Any) -> Row:
         "current_node": None,
         "plan": None,
         "result": None,
+        "pending": None,
         "committed_entity_ids": [],
         "committed_relationship_ids": [],
         "error": None,
