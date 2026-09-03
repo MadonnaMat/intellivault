@@ -70,8 +70,8 @@ def _stub_redis(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(checks, "Redis", _redis_stub())
 
 
-def _probes(client: httpx.AsyncClient, **overrides: Any) -> HealthProbes:
-    settings = Settings(
+def _settings(**extra: Any) -> Settings:
+    return Settings(
         _env_file=None,
         NEO4J_PASSWORD="x",
         DATABASE_URL="postgresql://u:p@localhost:5432/db",
@@ -79,7 +79,16 @@ def _probes(client: httpx.AsyncClient, **overrides: Any) -> HealthProbes:
         PHOENIX_COLLECTOR_ENDPOINT=PHOENIX,
         AGENT_SEARCH_MCP_URL=MCP,
         AGENT_WIKIPEDIA_MCP_URL=WIKI_MCP,
+        **extra,
     )
+
+
+def _memory_settings() -> Settings:
+    return _settings(REDIS_URL="memory://")
+
+
+def _probes(client: httpx.AsyncClient, **overrides: Any) -> HealthProbes:
+    settings = _settings()
     defaults: dict[str, Any] = {
         "settings": settings,
         "pg_pool": _FakePgPool(),
@@ -199,6 +208,22 @@ async def test_redis_unreachable_is_degraded_not_down(monkeypatch: pytest.Monkey
     assert statuses["redis"].critical is False  # only enqueue degrades, never down
     assert "refused" in statuses["redis"].detail
     assert _FakeRedis.last is not None and _FakeRedis.last.closed is True  # aclose() still ran
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_redis_memory_url_reports_ok_without_probing(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_healthy_http()
+    _FakeRedis.last = None
+    monkeypatch.setattr(checks, "Redis", _redis_stub(ConnectionError("must not be called")))
+
+    async with httpx.AsyncClient() as client:
+        probes = _probes(client, settings=_memory_settings())
+        statuses = {s.name: s for s in await gather_health(probes)}
+
+    assert statuses["redis"].ok is True
+    assert "in-memory" in statuses["redis"].detail
+    assert _FakeRedis.last is None  # Redis.from_url() was never touched
 
 
 @respx.mock

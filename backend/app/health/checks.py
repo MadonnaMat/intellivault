@@ -129,7 +129,11 @@ async def _check_wikipedia_mcp(probes: HealthProbes) -> ProbeResult:
 async def _check_redis(probes: HealthProbes) -> ProbeResult:
     # The agent-loop task queue. Non-critical: the gateway serves every read
     # without it — only POST /agent/runs (enqueue) needs Redis.
-    client: Redis = Redis.from_url(probes.settings.redis_url)
+    url = probes.settings.redis_url
+    if not url or url == "memory://":
+        # The in-process broker (tests / offline dev) — nothing to probe.
+        return "in-memory broker (no Redis)", False
+    client: Redis = Redis.from_url(url)
     try:
         await client.ping()
     finally:
