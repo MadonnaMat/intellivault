@@ -18,7 +18,7 @@ from fastapi import HTTPException
 from app.agent import service as agent_service
 from app.agent.deps import AgentDeps
 from app.agent.graph_state import AgentState
-from app.agent.schemas import DraftEntity, DraftRelationship, StructuredResult
+from app.agent.schemas import DigestEntity, DraftEntity, DraftRelationship, StructuredResult
 from app.graph import service as graph_service
 from app.graph.schemas import EntityInput, RelationshipInput
 
@@ -54,10 +54,11 @@ async def _embed_entity(
 
 async def _commit_entities(
     drafts: list[DraftEntity], *, state: AgentState, deps: AgentDeps
-) -> tuple[dict[str, UUID], list[str], list[str]]:
+) -> tuple[dict[str, UUID], list[str], list[DigestEntity], list[str]]:
     run_id = UUID(state["run_id"])
     id_map: dict[str, UUID] = {}
     committed = list(state["committed_entity_ids"])
+    created: list[DigestEntity] = []
     skipped: list[str] = []
     for draft in drafts:
         if draft.existing_id is not None:
@@ -72,9 +73,10 @@ async def _commit_entities(
         )
         id_map[draft.temp_id] = entity.id
         committed.append(str(entity.id))
+        created.append(DigestEntity(id=entity.id, name=entity.name, kind=entity.kind))
         await agent_service.append_committed_entity(deps.pool, run_id, entity.id)
         await _embed_entity(entity.id, draft, state=state, deps=deps, skipped=skipped)
-    return id_map, committed, skipped
+    return id_map, committed, created, skipped
 
 
 async def _commit_relationships(
@@ -106,14 +108,15 @@ async def _commit_relationships(
 
 async def commit_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     result = state["structured"] or StructuredResult()
-    id_map, committed_entities, entity_skipped = await _commit_entities(
+    id_map, committed_ids, created, entity_skipped = await _commit_entities(
         result.entities, state=state, deps=deps
     )
     committed_rels, rel_skipped = await _commit_relationships(
         result.relationships, id_map, state=state, deps=deps
     )
     return {
-        "committed_entity_ids": committed_entities,
+        "committed_entity_ids": committed_ids,
         "committed_relationship_ids": committed_rels,
+        "committed_entities": created,
         "skipped": [*state["skipped"], *entity_skipped, *rel_skipped],
     }

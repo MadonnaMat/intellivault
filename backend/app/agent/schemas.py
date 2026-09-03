@@ -87,6 +87,24 @@ class StructuredResult(BaseModel):
     relationships: list[DraftRelationship] = Field(default_factory=list)
 
 
+class Critique(BaseModel):
+    """The ``critique`` node's verdict on a drafted StructuredResult."""
+
+    verdict: Literal["ok", "revise"]
+    notes: str = ""
+
+
+class EnrichLink(BaseModel):
+    target_id: str
+    kind: _Kind
+
+
+class EnrichLinks(BaseModel):
+    """``enrich``'s proposed links from a new entity to existing ones."""
+
+    links: list[EnrichLink] = Field(default_factory=list)
+
+
 # --- run record --------------------------------------------------------------
 
 

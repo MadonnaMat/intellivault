@@ -57,6 +57,8 @@ def test_agent_defaults() -> None:
     assert settings.agent_search_mcp_url == "http://localhost:8770/mcp"
     assert settings.agent_wikipedia_mcp_url == "http://localhost:8771/mcp"
     assert settings.agent_worker_concurrency == 4
+    assert settings.agent_search_retries == 1
+    assert settings.agent_critique_retries == 1
 
 
 def test_agent_overrides_from_env() -> None:

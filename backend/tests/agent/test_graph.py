@@ -43,16 +43,14 @@ def _node_row(name: str) -> dict[str, Any]:
     }
 
 
-def _chat() -> FakeChatModel:
+def _chat(
+    entities: list[dict[str, str]], relationships: list[dict[str, str]] | None = None
+) -> FakeChatModel:
     return FakeChatModel(
         structured={
             "Plan": [{"summary": "s", "queries": ["q1"]}],
-            "StructuredResult": [
-                {
-                    "entities": [{"temp_id": "e1", "name": "Bell Labs", "kind": "org"}],
-                    "relationships": [],
-                }
-            ],
+            "StructuredResult": [{"entities": entities, "relationships": relationships or []}],
+            "Critique": [{"verdict": "ok"}],
         }
     )
 
@@ -60,7 +58,7 @@ def _chat() -> FakeChatModel:
 @respx.mock
 async def test_full_run_commits_a_private_entity() -> None:
     respx.get("https://src.test/1").mock(return_value=httpx.Response(200, html="<p>facts</p>"))
-    # survey_graph: list entities, list rels; commit: one create_entity
+    # survey_graph: list entities, list rels ; commit: one create_entity
     driver = FakeNeo4jDriver([], [], [_node_row("Bell Labs")])
     pool = FakePool()
 
@@ -68,43 +66,55 @@ async def test_full_run_commits_a_private_entity() -> None:
         deps = fake_deps(
             driver=driver,
             pool=pool,
-            chat_model=_chat(),
+            chat_model=_chat([{"temp_id": "e1", "name": "Bell Labs", "kind": "org"}]),
             search_tool=FakeSearchTool([{"url": "https://src.test/1", "title": "S"}]),
             http_client=client,
         )
-        graph = build_graph(deps)
-        seen: dict[str, dict[str, Any]] = {}
-        async for node_name, update in run_graph(graph, initial_state("topic", _OWNER, _RUN)):
-            seen[node_name] = update
+        seen: list[str] = []
+        commit: dict[str, Any] = {}
+        start = initial_state("topic", _OWNER, _RUN)
+        async for name, update in run_graph(build_graph(deps), start):
+            seen.append(name)
+            if name == "commit":
+                commit = update
 
-    assert list(seen) == [
-        "plan",
-        "survey_graph",
-        "search",
-        "fetch",
-        "analyze",
-        "structure",
-        "commit",
-    ]
-    assert len(seen["commit"]["committed_entity_ids"]) == 1
+    assert seen[:3] == ["plan", "survey_graph", "search"]
+    assert "analyze_one" in seen and seen[-1] == "enrich"
+    assert len(commit["committed_entity_ids"]) == 1
     assert any("array_append(committed_entity_ids" in q for q, _ in pool.calls)
     create = [p for q, p in driver.calls if "CREATE (e:Entity" in q][0]
     assert create["visibility"] == "private" and create["owner_id"] == _OWNER
 
 
 @respx.mock
+async def test_two_sources_fan_out_and_fan_back_in() -> None:
+    respx.get("https://src.test/1").mock(return_value=httpx.Response(200, html="<p>one</p>"))
+    respx.get("https://src.test/2").mock(return_value=httpx.Response(200, html="<p>two</p>"))
+    driver = FakeNeo4jDriver([], [], [_node_row("X")])
+
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        deps = fake_deps(
+            driver=driver,
+            pool=FakePool(),
+            chat_model=_chat([{"temp_id": "e1", "name": "X", "kind": "org"}]),
+            search_tool=FakeSearchTool(
+                [{"url": "https://src.test/1"}, {"url": "https://src.test/2"}]
+            ),
+            http_client=client,
+        )
+        notes: list[str] = []
+        async for name, update in run_graph(build_graph(deps), initial_state("t", _OWNER, _RUN)):
+            if name == "analyze_one":
+                notes.extend(update["source_notes"])
+    assert len(notes) == 2  # one note per source, folded by synthesize
+
+
+@respx.mock
 async def test_full_run_does_not_abort_on_a_rejected_relationship() -> None:
     respx.get("https://src.test/1").mock(return_value=httpx.Response(200, html="<p>x</p>"))
-    chat = FakeChatModel(
-        structured={
-            "Plan": [{"summary": "s", "queries": ["q1"]}],
-            "StructuredResult": [
-                {
-                    "entities": [{"temp_id": "e1", "name": "A", "kind": "org"}],
-                    "relationships": [{"from_ref": "e1", "to_ref": "e1", "kind": "self"}],
-                }
-            ],
-        }
+    chat = _chat(
+        [{"temp_id": "e1", "name": "A", "kind": "org"}],
+        [{"from_ref": "e1", "to_ref": "e1", "kind": "self"}],
     )
     # survey (2) + create_entity (1) + create_relationship [] + relationship_endpoints []
     driver = FakeNeo4jDriver([], [], [_node_row("A")], [], [])
@@ -118,10 +128,8 @@ async def test_full_run_does_not_abort_on_a_rejected_relationship() -> None:
             http_client=client,
         )
         final: dict[str, Any] = {}
-        async for node_name, update in run_graph(
-            build_graph(deps), initial_state("t", _OWNER, _RUN)
-        ):
-            if node_name == "commit":
+        async for name, update in run_graph(build_graph(deps), initial_state("t", _OWNER, _RUN)):
+            if name == "commit":
                 final = update
 
     assert final["committed_entity_ids"] and not final["committed_relationship_ids"]

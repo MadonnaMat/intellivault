@@ -26,6 +26,7 @@ def _empty_run_chat() -> FakeChatModel:
         structured={
             "Plan": [{"summary": "s", "queries": ["q"]}],
             "StructuredResult": [{"entities": [], "relationships": []}],
+            "Critique": [{"verdict": "ok"}],
         },
         text="analysis",
     )
@@ -43,17 +44,13 @@ async def test_run_agent_walks_queued_running_succeeded() -> None:
 
     assert find_call(pool, "status = 'running'")[1] == (_RUN,)
     node_calls = [args[1] for q, args in pool.calls if "current_node = $2" in q]
-    assert node_calls == [
-        "plan",
-        "survey_graph",
-        "search",
-        "fetch",
-        "analyze",
-        "structure",
-        "commit",
-    ]
+    # no search hits -> no fetch/analyze_one; the synthesize/critique/lookup/enrich
+    # stages still run.
+    assert node_calls[:3] == ["plan", "survey_graph", "search"]
+    assert node_calls[-1] == "enrich"
+    assert "synthesize" in node_calls and "commit" in node_calls
     _q, ok_args = find_call(pool, "status = 'succeeded'")
-    assert json.loads(ok_args[1])["analysis"] == "analysis"
+    assert json.loads(ok_args[1])["analysis"] == "(no sources were analysed)"
 
 
 async def test_run_agent_persists_the_plan_once() -> None:

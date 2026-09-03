@@ -12,9 +12,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 
 async def load_mcp_tools(url: str, server_name: str) -> list[BaseTool]:
-    client = MultiServerMCPClient(
-        {server_name: {"url": url, "transport": "streamable_http"}}
-    )
+    client = MultiServerMCPClient({server_name: {"url": url, "transport": "streamable_http"}})
     return await client.get_tools(server_name=server_name)
 
 

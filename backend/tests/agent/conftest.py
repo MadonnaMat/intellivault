@@ -140,9 +140,7 @@ def fake_deps(
         chat_model=cast(BaseChatModel, chat_model or FakeChatModel()),
         embedder=cast(Embeddings, embedder or FakeEmbedder(error=RuntimeError("no embedder"))),
         search_tool=cast(BaseTool, search_tool or FakeSearchTool([])),
-        wikipedia_tools=cast(
-            "dict[str, BaseTool]", wikipedia_tools or fake_wikipedia_tools()
-        ),
+        wikipedia_tools=cast("dict[str, BaseTool]", wikipedia_tools or fake_wikipedia_tools()),
     )
 
 

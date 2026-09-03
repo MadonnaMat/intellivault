@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from app.agent.nodes import structure_node
+from app.agent.fetch import FetchedDoc
+from app.agent.nodes import critique_node, structure_node
 from app.agent.schemas import DigestEntity, GraphDigest, StructuredResult
 from tests.agent.conftest import FakeChatModel, fake_deps, make_state
 from tests.graph.conftest import FakeNeo4jDriver
@@ -41,3 +42,40 @@ async def test_survives_unparseable_output() -> None:
     )
     assert out["structured"] == StructuredResult()
     assert any(note.startswith("structure:") for note in out["skipped"])
+
+
+_DRAFT = {
+    "entities": [{"temp_id": "e1", "name": "Bell Labs", "kind": "org"}],
+    "relationships": [],
+}
+
+
+async def test_critique_ok_clears_the_critique() -> None:
+    chat = FakeChatModel(structured={"Critique": [{"verdict": "ok"}]})
+    out = await critique_node(
+        make_state(
+            structured=StructuredResult.model_validate(_DRAFT),
+            documents=[FetchedDoc(url="https://s/1", text="Bell Labs")],
+        ),
+        deps=fake_deps(driver=FakeNeo4jDriver(), chat_model=chat),
+    )
+    assert out["critique"] is None
+    assert out["critique_attempts"] == 1
+
+
+async def test_critique_revise_records_notes_for_the_retry() -> None:
+    payload = {"verdict": "revise", "notes": "invented an entity"}
+    chat = FakeChatModel(structured={"Critique": [payload]})
+    out = await critique_node(
+        make_state(structured=StructuredResult.model_validate(_DRAFT), documents=[]),
+        deps=fake_deps(driver=FakeNeo4jDriver(), chat_model=chat),
+    )
+    assert out["critique"] == "invented an entity"
+    assert any("invented an entity" in n for n in out["skipped"])
+
+
+async def test_critique_skips_an_empty_draft() -> None:
+    out = await critique_node(
+        make_state(structured=StructuredResult()), deps=fake_deps(driver=FakeNeo4jDriver())
+    )
+    assert out["critique"] is None

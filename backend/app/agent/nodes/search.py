@@ -11,10 +11,14 @@ import asyncio
 import json
 from typing import Any
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.agent.deps import AgentDeps
 from app.agent.fetch import FetchedDoc, SsrfError, fetch_text, guard_url
 from app.agent.graph_state import AgentState
-from app.agent.schemas import SearchHit
+from app.agent.llm import structured
+from app.agent.prompts import prompt
+from app.agent.schemas import Plan, SearchHit
 
 
 def _is_text_blocks(raw: Any) -> bool:
@@ -77,6 +81,34 @@ async def search_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
                 continue
             hits.append(hit)
     return {"search_hits": hits, "skipped": skipped}
+
+
+async def broaden_queries_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
+    """A search round found nothing — ask for broader queries and try again."""
+    tried = state["plan"].queries if state["plan"] is not None else []
+    revised = await structured(
+        deps.chat_model,
+        Plan,
+        [
+            SystemMessage(content=prompt("broaden_system")),
+            HumanMessage(
+                content=f"Topic: {state['topic']}\n\nQueries that failed:\n" + "\n".join(tried)
+            ),
+        ],
+    )
+    plan = (
+        revised
+        if state["plan"] is None
+        else state["plan"].model_copy(update={"queries": revised.queries})
+    )
+    return {
+        "plan": plan,
+        "search_attempts": state["search_attempts"] + 1,
+        "skipped": [
+            *state["skipped"],
+            f"search: round {state['search_attempts'] + 1} — broadened queries",
+        ],
+    }
 
 
 async def fetch_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:

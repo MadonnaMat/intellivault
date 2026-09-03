@@ -14,9 +14,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agent.deps import AgentDeps
 from app.agent.graph_state import AgentState
 from app.agent.llm import StructuredOutputError, structured
-from app.agent.nodes._common import format_digest
+from app.agent.nodes._common import format_digest, format_documents
 from app.agent.prompts import prompt
-from app.agent.schemas import GraphDigest, StructuredResult
+from app.agent.schemas import Critique, GraphDigest, StructuredResult
 
 
 def _dedupe_against_existing(
@@ -36,10 +36,13 @@ def _dedupe_against_existing(
 
 async def structure_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     skipped = list(state["skipped"])
+    revision = (
+        f"\n\nA previous attempt was rejected: {state['critique']}" if state["critique"] else ""
+    )
     user_prompt = (
         f"Topic: {state['topic']}\n\n"
         f"Existing graph:\n{format_digest(state['existing_graph'])}\n\n"
-        f"Analysis:\n{state['analysis'] or '(none)'}"
+        f"Analysis:\n{state['analysis'] or '(none)'}{revision}"
     )
     try:
         result = await structured(
@@ -57,3 +60,37 @@ async def structure_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any
         "structured": _dedupe_against_existing(result, state["existing_graph"]),
         "skipped": skipped,
     }
+
+
+def _format_drafts(result: StructuredResult) -> str:
+    entities = "\n".join(f"- {e.temp_id}: {e.name} [{e.kind}]" for e in result.entities)
+    edges = "\n".join(f"- {r.from_ref} -{r.kind}-> {r.to_ref}" for r in result.relationships)
+    return f"Entities:\n{entities or '(none)'}\n\nRelationships:\n{edges or '(none)'}"
+
+
+async def critique_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
+    """Check the drafts against the sources; ``revise`` bounces back to ``structure``."""
+    result = state["structured"] or StructuredResult()
+    if not result.entities:
+        return {"critique": None, "critique_attempts": state["critique_attempts"] + 1}
+    user_prompt = (
+        f"Topic: {state['topic']}\n\n"
+        f"Sources:\n{format_documents(state['documents'])}\n\n"
+        f"Draft:\n{_format_drafts(result)}"
+    )
+    try:
+        verdict = await structured(
+            deps.chat_model,
+            Critique,
+            [SystemMessage(content=prompt("critique_system")), HumanMessage(content=user_prompt)],
+        )
+    except StructuredOutputError:
+        verdict = Critique(verdict="ok")
+    attempts = state["critique_attempts"] + 1
+    if verdict.verdict == "revise":
+        return {
+            "critique": verdict.notes,
+            "critique_attempts": attempts,
+            "skipped": [*state["skipped"], f"critique (round {attempts}): {verdict.notes}"],
+        }
+    return {"critique": None, "critique_attempts": attempts}

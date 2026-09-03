@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     agent_survey_max_entities: int = 150
     # Runs the worker processes concurrently (taskiq `--max-async-tasks`).
     agent_worker_concurrency: int = 4
+    # Bounded LangGraph cycles: how many times `broaden_queries` may re-search
+    # when a round finds nothing, and how many times `critique` may bounce a
+    # weak draft back to `structure`.
+    agent_search_retries: int = 1
+    agent_critique_retries: int = 1
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

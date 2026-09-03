@@ -1,7 +1,10 @@
-"""Helpers shared across the node modules — prompt formatting, tokenisation."""
+"""Helpers shared across the node modules — prompt formatting, tokenisation,
+normalising MCP tool output.
+"""
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -9,6 +12,26 @@ from app.agent.fetch import FetchedDoc
 from app.agent.schemas import GraphDigest
 
 _TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def coerce_mcp(raw: Any) -> Any:
+    """MCP tool output -> a plain value.
+
+    Tools return ``[{"type": "text", "text": "..."}]`` content blocks; the text
+    is usually JSON. Returns the parsed dict/list, or the string if it isn't JSON.
+    """
+    if (
+        isinstance(raw, list)
+        and raw
+        and all(isinstance(b, dict) and b.get("type") == "text" for b in raw)
+    ):
+        raw = "".join(str(b.get("text", "")) for b in raw)
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return raw
+    return raw
 
 
 def tokens(text: str) -> set[str]:
