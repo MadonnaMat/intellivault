@@ -183,8 +183,12 @@ async def test_load_parked_parses_drafts_and_partial_result() -> None:
     row = make_run_row(
         pending=json.dumps({"entities": [{"temp_id": "e1", "name": "P", "kind": "n"}]}),
         result=json.dumps(
-            {"analysis": "found things", "entities_created": 0,
-             "relationships_created": 0, "skipped": ["fetch: x"]}
+            {
+                "analysis": "found things",
+                "entities_created": 0,
+                "relationships_created": 0,
+                "skipped": ["fetch: x"],
+            }
         ),
     )
     parked = await service.load_parked(as_pool(FakePool(fetchrow=row)), uuid4())
