@@ -60,3 +60,13 @@ def test_noncritical_failure_is_degraded_not_down(
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "degraded"
+
+
+def test_redis_down_is_degraded_not_down(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Redis backs the agent queue only — a POST /agent/runs concern, not liveness.
+    _patch_gather(monkeypatch, [_svc("postgres"), _svc("redis", ok=False, critical=False)])
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"

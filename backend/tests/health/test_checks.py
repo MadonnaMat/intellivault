@@ -34,6 +34,40 @@ class _FakeNeo4jDriver:
             raise self._error
 
 
+class _FakeRedis:
+    """Stands in for redis.asyncio.Redis — records that aclose() ran."""
+
+    last: _FakeRedis | None = None
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self._error = error
+        self.closed = False
+
+    async def ping(self) -> bool:
+        if self._error is not None:
+            raise self._error
+        return True
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def _redis_stub(error: Exception | None = None) -> type:
+    """A drop-in for checks.Redis whose from_url() yields a fresh _FakeRedis."""
+
+    def from_url(_url: str) -> _FakeRedis:
+        _FakeRedis.last = _FakeRedis(error)
+        return _FakeRedis.last
+
+    return type("_RedisStub", (), {"from_url": staticmethod(from_url)})
+
+
+@pytest.fixture(autouse=True)
+def _stub_redis(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default: the redis probe passes. Tests that need a failure re-patch checks.Redis."""
+    monkeypatch.setattr(checks, "Redis", _redis_stub())
+
+
 def _probes(client: httpx.AsyncClient, **overrides: Any) -> HealthProbes:
     settings = Settings(
         _env_file=None,
@@ -114,6 +148,42 @@ async def test_phoenix_down_and_neo4j_error() -> None:
     assert statuses["neo4j"].critical is True
     assert "boom" in statuses["neo4j"].detail
     assert statuses["postgres"].ok is True
+
+
+def _mock_phoenix_and_ollama() -> None:
+    respx.get(f"{PHOENIX}/healthz").mock(return_value=httpx.Response(200))
+    respx.get(f"{OLLAMA}/api/tags").mock(
+        return_value=httpx.Response(
+            200, json={"models": [{"name": "nomic-embed-text"}, {"name": "qwen3:8b"}]}
+        )
+    )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_redis_reachable() -> None:
+    _mock_phoenix_and_ollama()
+    async with httpx.AsyncClient() as client:
+        statuses = {s.name: s for s in await gather_health(_probes(client))}
+
+    assert statuses["redis"].ok is True
+    assert statuses["redis"].critical is False
+    assert _FakeRedis.last is not None and _FakeRedis.last.closed is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_redis_unreachable_is_degraded_not_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_phoenix_and_ollama()
+    monkeypatch.setattr(checks, "Redis", _redis_stub(ConnectionError("refused")))
+
+    async with httpx.AsyncClient() as client:
+        statuses = {s.name: s for s in await gather_health(_probes(client))}
+
+    assert statuses["redis"].ok is False
+    assert statuses["redis"].critical is False  # only enqueue degrades, never down
+    assert "refused" in statuses["redis"].detail
+    assert _FakeRedis.last is not None and _FakeRedis.last.closed is True  # aclose() still ran
 
 
 @respx.mock

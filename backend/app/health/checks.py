@@ -15,6 +15,7 @@ from time import perf_counter
 import asyncpg
 import httpx
 from neo4j import AsyncDriver
+from redis.asyncio import Redis
 
 from app.config import Settings
 from app.schemas import ServiceStatus
@@ -107,6 +108,17 @@ async def _check_ollama(probes: HealthProbes) -> ProbeResult:
     return "embed + chat models present", False
 
 
+async def _check_redis(probes: HealthProbes) -> ProbeResult:
+    # The agent-loop task queue. Non-critical: the gateway serves every read
+    # without it — only POST /agent/runs (enqueue) needs Redis.
+    client: Redis = Redis.from_url(probes.settings.redis_url)
+    try:
+        await client.ping()
+    finally:
+        await client.aclose()
+    return "PING -> PONG", False
+
+
 def _timed_out(name: str, critical: bool) -> ServiceStatus:
     return ServiceStatus(
         name=name,
@@ -130,6 +142,7 @@ async def gather_health(probes: HealthProbes) -> list[ServiceStatus]:
         ("neo4j", lambda: _check_neo4j(probes), True),
         ("phoenix", lambda: _check_phoenix(probes), False),
         ("ollama", lambda: _check_ollama(probes), True),
+        ("redis", lambda: _check_redis(probes), False),
     ]
     tasks = {
         asyncio.ensure_future(_measure(name, probe, critical=critical)): (name, critical)

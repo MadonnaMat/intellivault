@@ -43,6 +43,14 @@ def test_webauthn_overrides_from_env() -> None:
     assert settings.session_cookie_samesite == "none"
 
 
+def test_agent_defaults() -> None:
+    assert _make().redis_url == "redis://localhost:6379/0"
+
+
+def test_agent_overrides_from_env() -> None:
+    assert _make(REDIS_URL="redis://redis:6379/1").redis_url == "redis://redis:6379/1"
+
+
 def test_db_pool_bounds() -> None:
     assert _make().db_pool_min_size == 0
     assert _make().db_pool_max_size == 20

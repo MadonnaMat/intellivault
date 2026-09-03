@@ -17,6 +17,8 @@ dependencies = [
     "opentelemetry-instrumentation-httpx>=0.48b0",
     "webauthn>=3.0.0",
     "pydantic[email]>=2.13.5",
+    "taskiq>=0.12",
+    "taskiq-redis>=1.2",
 ]
 
 [dependency-groups]

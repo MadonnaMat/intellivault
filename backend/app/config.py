@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     ollama_embed_model: str = "nomic-embed-text"
     ollama_chat_model: str = "qwen3:8b"
 
+    # --- Agent loop (Redis-backed taskiq queue; the worker runs as its own
+    # process — see app/agent/). "memory://" swaps in taskiq's InMemoryBroker
+    # for tests / offline dev. ---
+    redis_url: str = "redis://localhost:6379/0"
+
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps
     # pydantic-settings from JSON-parsing the env value so the validator
