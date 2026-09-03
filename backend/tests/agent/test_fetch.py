@@ -78,6 +78,17 @@ async def test_guard_url_rejects_when_dns_is_empty() -> None:
         await guard_url("http://empty.test/")
 
 
+async def test_guard_url_wraps_a_resolution_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket
+
+    async def _boom(_host: str, _port: int) -> list[str]:
+        raise socket.gaierror(-2, "Name or service not known")
+
+    monkeypatch.setattr(fetch, "_resolve", _boom)
+    with pytest.raises(SsrfError, match="cannot resolve"):
+        await guard_url("https://nope.invalid/x")
+
+
 async def test_guard_url_allows_a_public_address() -> None:
     assert await guard_url("https://example.com/a") == "https://example.com/a"
 

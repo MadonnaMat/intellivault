@@ -80,7 +80,10 @@ async def guard_url(url: str) -> str:
         port = parts.port or (443 if parts.scheme == "https" else 80)
     except ValueError as exc:  # non-numeric port in the authority
         raise SsrfError(f"invalid port in {url!r}") from exc
-    addresses = await _resolve(host, port)
+    try:
+        addresses = await _resolve(host, port)
+    except OSError as exc:  # gaierror (NXDOMAIN) and friends — unreachable = blocked
+        raise SsrfError(f"cannot resolve {host!r}: {exc}") from exc
     if not addresses:
         raise SsrfError(f"no DNS answer for {host!r}")
     for address in addresses:
