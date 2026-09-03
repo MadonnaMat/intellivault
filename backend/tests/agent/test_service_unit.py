@@ -126,6 +126,7 @@ async def test_mark_succeeded_and_failed_write_final_state() -> None:
     assert fail_args[:2] == (run_id, "boom")
 
 
-async def test_enqueue_run_is_a_noop_for_now() -> None:
-    # Wired to the broker in a later slice; today it must simply not raise.
-    await service.enqueue_run(uuid4())
+async def test_enqueue_run_kicks_the_task(stub_task_kick: list[str]) -> None:
+    run_id = uuid4()
+    await service.enqueue_run(run_id)
+    assert stub_task_kick == [str(run_id)]

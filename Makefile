@@ -1,5 +1,5 @@
 .PHONY: up down logs verify e2e migrate migrate-down migrate-rollback migrate-status \
-        graph-migrate graph-migrate-down graph-migrate-status \
+        graph-migrate graph-migrate-down graph-migrate-status agent-worker \
         test-db-up test-db-down openapi gen-api-types check-api-types \
         backend-lint backend-test frontend-lint frontend-test lint test ci
 
@@ -67,6 +67,12 @@ graph-migrate-down:
 
 graph-migrate-status:
 	cd backend && PYTHONPATH=. $(UV) run python scripts/graph_migrate.py status
+
+# --- Agent loop worker (native dev; compose runs its own `agent-worker`) ---
+# Needs Redis + the SearXNG MCP server reachable (docker compose up -d redis
+# searxng mcp-searxng) and host Ollama with the chat + embed models.
+agent-worker:
+	cd backend && PYTHONPATH=. $(UV) run taskiq worker app.agent.broker:broker app.agent.tasks --reload
 
 # --- Test infrastructure (isolated from the app databases) ---
 test-db-up:

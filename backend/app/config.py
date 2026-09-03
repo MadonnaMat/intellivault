@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     # (ranked by relevance to the topic, then recency) — the whole graph would
     # blow a small model's context and grows unbounded with the public graph.
     agent_survey_max_entities: int = 150
+    # Runs the worker processes concurrently (taskiq `--max-async-tasks`).
+    agent_worker_concurrency: int = 4
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

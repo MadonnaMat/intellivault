@@ -15,6 +15,7 @@ from app.health.checks import HealthProbes, _measure, gather_health
 
 OLLAMA = "http://ollama.test:11434"
 PHOENIX = "http://phoenix.test:6006"
+MCP = "http://mcp.test:8770/mcp"
 
 
 class _FakePgPool:
@@ -75,6 +76,7 @@ def _probes(client: httpx.AsyncClient, **overrides: Any) -> HealthProbes:
         DATABASE_URL="postgresql://u:p@localhost:5432/db",
         OLLAMA_URL=OLLAMA,
         PHOENIX_COLLECTOR_ENDPOINT=PHOENIX,
+        AGENT_SEARCH_MCP_URL=MCP,
     )
     defaults: dict[str, Any] = {
         "settings": settings,
@@ -98,15 +100,19 @@ async def test_measure_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "timed out" in result.detail
 
 
+def _mock_healthy_http(*, phoenix: int = 200, ollama_models: list[str] | None = None) -> None:
+    models = ollama_models if ollama_models is not None else ["nomic-embed-text", "qwen3:8b"]
+    respx.get(f"{PHOENIX}/healthz").mock(return_value=httpx.Response(phoenix))
+    respx.get(f"{OLLAMA}/api/tags").mock(
+        return_value=httpx.Response(200, json={"models": [{"name": m} for m in models]})
+    )
+    respx.get(MCP).mock(return_value=httpx.Response(406))  # streamable-http rejects a bare GET
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_gather_all_ok() -> None:
-    respx.get(f"{PHOENIX}/healthz").mock(return_value=httpx.Response(200))
-    respx.get(f"{OLLAMA}/api/tags").mock(
-        return_value=httpx.Response(
-            200, json={"models": [{"name": "nomic-embed-text:latest"}, {"name": "qwen3:8b"}]}
-        )
-    )
+    _mock_healthy_http(ollama_models=["nomic-embed-text:latest", "qwen3:8b"])
     async with httpx.AsyncClient() as client:
         statuses = {s.name: s for s in await gather_health(_probes(client))}
 
@@ -117,10 +123,7 @@ async def test_gather_all_ok() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_ollama_missing_model_is_degraded() -> None:
-    respx.get(f"{PHOENIX}/healthz").mock(return_value=httpx.Response(200))
-    respx.get(f"{OLLAMA}/api/tags").mock(
-        return_value=httpx.Response(200, json={"models": [{"name": "qwen3:8b"}]})
-    )
+    _mock_healthy_http(ollama_models=["qwen3:8b"])
     async with httpx.AsyncClient() as client:
         statuses = {s.name: s for s in await gather_health(_probes(client))}
 
@@ -132,12 +135,7 @@ async def test_ollama_missing_model_is_degraded() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_phoenix_down_and_neo4j_error() -> None:
-    respx.get(f"{PHOENIX}/healthz").mock(return_value=httpx.Response(500))
-    respx.get(f"{OLLAMA}/api/tags").mock(
-        return_value=httpx.Response(
-            200, json={"models": [{"name": "nomic-embed-text"}, {"name": "qwen3:8b"}]}
-        )
-    )
+    _mock_healthy_http(phoenix=500)
     async with httpx.AsyncClient() as client:
         probes = _probes(client, neo4j_driver=_FakeNeo4jDriver(RuntimeError("boom")))
         statuses = {s.name: s for s in await gather_health(probes)}
@@ -150,19 +148,31 @@ async def test_phoenix_down_and_neo4j_error() -> None:
     assert statuses["postgres"].ok is True
 
 
-def _mock_phoenix_and_ollama() -> None:
-    respx.get(f"{PHOENIX}/healthz").mock(return_value=httpx.Response(200))
-    respx.get(f"{OLLAMA}/api/tags").mock(
-        return_value=httpx.Response(
-            200, json={"models": [{"name": "nomic-embed-text"}, {"name": "qwen3:8b"}]}
-        )
-    )
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_mcp_reachable_on_any_non_5xx() -> None:
+    _mock_healthy_http()
+    async with httpx.AsyncClient() as client:
+        statuses = {s.name: s for s in await gather_health(_probes(client))}
+    assert statuses["search-mcp"].ok is True
+    assert statuses["search-mcp"].critical is False
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_search_mcp_down_is_degraded_not_down() -> None:
+    _mock_healthy_http()
+    respx.get(MCP).mock(return_value=httpx.Response(502))
+    async with httpx.AsyncClient() as client:
+        statuses = {s.name: s for s in await gather_health(_probes(client))}
+    assert statuses["search-mcp"].ok is False
+    assert statuses["search-mcp"].critical is False
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_redis_reachable() -> None:
-    _mock_phoenix_and_ollama()
+    _mock_healthy_http()
     async with httpx.AsyncClient() as client:
         statuses = {s.name: s for s in await gather_health(_probes(client))}
 
@@ -174,7 +184,7 @@ async def test_redis_reachable() -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_redis_unreachable_is_degraded_not_down(monkeypatch: pytest.MonkeyPatch) -> None:
-    _mock_phoenix_and_ollama()
+    _mock_healthy_http()
     monkeypatch.setattr(checks, "Redis", _redis_stub(ConnectionError("refused")))
 
     async with httpx.AsyncClient() as client:
@@ -191,11 +201,7 @@ async def test_redis_unreachable_is_degraded_not_down(monkeypatch: pytest.Monkey
 async def test_gather_bounds_a_stuck_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     """A probe that overruns the overall deadline is reported failed, not awaited."""
     monkeypatch.setattr(checks, "OVERALL_TIMEOUT_SECONDS", 0.1)
-    respx.get(f"{OLLAMA}/api/tags").mock(
-        return_value=httpx.Response(
-            200, json={"models": [{"name": "nomic-embed-text"}, {"name": "qwen3:8b"}]}
-        )
-    )
+    _mock_healthy_http()
 
     async def stuck(_probes: object) -> tuple[str, bool]:
         await asyncio.shield(asyncio.sleep(5))

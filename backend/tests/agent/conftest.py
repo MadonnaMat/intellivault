@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
 
 import asyncpg
 import httpx
+import pytest
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
@@ -18,6 +20,22 @@ from app.agent.deps import AgentDeps, WorkerInfra
 from app.config import Settings
 
 Row = dict[str, Any]
+
+
+@pytest.fixture(autouse=True)
+def stub_task_kick(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Never enqueue a real taskiq job — record run ids handed to run_agent.kiq."""
+    from app.agent.tasks import run_agent
+
+    kicked: list[str] = []
+
+    async def _kiq(*args: Any, **_kwargs: Any) -> Any:
+        kicked.append(str(args[0]))
+        return SimpleNamespace(task_id="fake-task-id")
+
+    monkeypatch.setattr(run_agent, "kiq", _kiq)
+    return kicked
+
 
 _TEST_SETTINGS = Settings(
     _env_file=None,

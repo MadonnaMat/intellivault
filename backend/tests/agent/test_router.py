@@ -32,8 +32,9 @@ def agent_client(pool: FakePool, *, authenticated: bool = True) -> Iterator[Test
         app.dependency_overrides.clear()
 
 
-def test_create_run_returns_202_with_the_row() -> None:
-    pool = FakePool(fetchrow=make_run_row(topic="superconductors", status="queued"))
+def test_create_run_returns_202_and_enqueues(stub_task_kick: list[str]) -> None:
+    row = make_run_row(topic="superconductors", status="queued")
+    pool = FakePool(fetchrow=row)
     with agent_client(pool) as client:
         response = client.post("/agent/runs", json={"topic": "superconductors"})
 
@@ -42,6 +43,7 @@ def test_create_run_returns_202_with_the_row() -> None:
     assert body["topic"] == "superconductors"
     assert body["status"] == "queued"
     assert "INSERT INTO agent_runs" in pool.calls[0][0]
+    assert stub_task_kick == [body["id"]]  # the run was handed to the worker
 
 
 def test_create_run_rejects_a_too_short_topic() -> None:

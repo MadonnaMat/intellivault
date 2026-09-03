@@ -89,7 +89,11 @@ async def list_runs(pool: asyncpg.Pool, user_id: UUID) -> list[AgentRunSummary]:
 
 
 async def enqueue_run(run_id: UUID) -> None:
-    """Hand the run to the worker. Wired to ``run_agent.kiq`` in a later slice."""
+    """Hand the run to the taskiq worker. Imported lazily so the gateway's import
+    path never pulls in langgraph."""
+    from app.agent.tasks import run_agent
+
+    await run_agent.kiq(str(run_id))
 
 
 # --- worker write path ------------------------------------------------------

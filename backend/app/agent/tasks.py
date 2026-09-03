@@ -6,10 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
 from uuid import UUID
-
-from taskiq import Context, TaskiqDepends
 
 from app.agent import service
 from app.agent.broker import broker
@@ -58,7 +55,6 @@ async def _run_agent(run_id: str, infra: WorkerInfra) -> None:
 
 
 @broker.task
-async def run_agent(
-    run_id: str, context: Annotated[Context, TaskiqDepends()]
-) -> None:  # pragma: no cover - thin wrapper; _run_agent carries the tested logic
-    await _run_agent(run_id, context.state.infra)
+async def run_agent(run_id: str) -> None:  # pragma: no cover - thin wrapper
+    # broker.state.infra is populated in broker._on_startup (WORKER_STARTUP).
+    await _run_agent(run_id, broker.state.infra)
