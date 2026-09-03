@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import asyncpg
 import httpx
+from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
@@ -53,6 +54,21 @@ class FakeChatModel:
         return AIMessage(content=self._text)
 
 
+class FakeEmbedder:
+    def __init__(
+        self, *, vector: list[float] | None = None, error: Exception | None = None
+    ) -> None:
+        self._vector = vector if vector is not None else [0.1, 0.2, 0.3]
+        self._error = error
+        self.calls: list[str] = []
+
+    async def aembed_query(self, text: str) -> list[float]:
+        self.calls.append(text)
+        if self._error is not None:
+            raise self._error
+        return self._vector
+
+
 class FakeSearchTool:
     name = "search"
 
@@ -70,6 +86,7 @@ def fake_deps(
     driver: Any,
     pool: FakePool | None = None,
     chat_model: FakeChatModel | None = None,
+    embedder: FakeEmbedder | None = None,
     search_tool: FakeSearchTool | None = None,
     http_client: httpx.AsyncClient | None = None,
     settings: Settings | None = None,
@@ -80,6 +97,7 @@ def fake_deps(
         driver=driver,
         http_client=http_client or cast(httpx.AsyncClient, object()),
         chat_model=cast(BaseChatModel, chat_model or FakeChatModel()),
+        embedder=cast(Embeddings, embedder or FakeEmbedder(error=RuntimeError("no embedder"))),
         search_tool=cast(BaseTool, search_tool or FakeSearchTool([])),
     )
 
@@ -156,6 +174,7 @@ def find_call(pool: FakePool, needle: str) -> tuple[str, tuple[Any, ...]]:
 
 __all__ = [
     "FakeChatModel",
+    "FakeEmbedder",
     "FakePool",
     "FakeSearchTool",
     "Row",

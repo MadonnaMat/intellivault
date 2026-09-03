@@ -34,6 +34,7 @@ def _infra(log: list[str]) -> WorkerInfra:
         neo4j_driver=cast(Any, _Recorder(log, "neo4j")),
         http_client=cast(Any, _Recorder(log, "http")),
         chat_model=cast(Any, object()),
+        embedder=cast(Any, object()),
         search_tool=cast(Any, object()),
     )
 
@@ -51,4 +52,5 @@ def test_from_infra_shares_the_worker_clients() -> None:
     assert deps.driver is infra.neo4j_driver
     assert deps.http_client is infra.http_client
     assert deps.chat_model is infra.chat_model
+    assert deps.embedder is infra.embedder
     assert deps.search_tool is infra.search_tool

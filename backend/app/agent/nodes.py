@@ -72,11 +72,27 @@ def _rank_entities(entities: list[Entity], tokens: set[str], limit: int) -> list
     return sorted(entities, key=key, reverse=True)[:limit]
 
 
+def _survey_query_text(state: AgentState) -> str:
+    plan = state["plan"]
+    return " ".join([state["topic"], *(plan.queries if plan is not None else [])])
+
+
+async def _vector_survey(state: AgentState, deps: AgentDeps, limit: int) -> list[Entity]:
+    """The topic's nearest embedded entities, or [] (no embeddings / Ollama down)."""
+    try:
+        vector = await deps.embedder.aembed_query(_survey_query_text(state))
+        return await graph_service.search_entities_by_vector(
+            deps.driver, state["owner_id"], vector, limit
+        )
+    except Exception:  # noqa: BLE001 - fall back to the lexical ranking below
+        return []
+
+
 async def survey_graph_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
+    limit = deps.settings.agent_survey_max_entities
     view = await graph_service.list_graph(deps.driver, state["owner_id"])
-    kept = _rank_entities(
-        view.entities, _relevance_tokens(state), deps.settings.agent_survey_max_entities
-    )
+    hits = await _vector_survey(state, deps, limit)
+    kept = hits or _rank_entities(view.entities, _relevance_tokens(state), limit)
     kept_ids = {e.id for e in kept}
     edges = [r for r in view.relationships if r.from_id in kept_ids and r.to_id in kept_ids]
     digest = GraphDigest(
@@ -248,12 +264,33 @@ def _resolve_ref(ref: str, id_map: dict[str, UUID]) -> UUID | None:
         return None
 
 
+def _embed_text(draft: DraftEntity) -> str:
+    text = f"{draft.name} ({draft.kind})"
+    if draft.attributes:
+        text += "\n" + json.dumps(draft.attributes, sort_keys=True)
+    return text
+
+
+async def _embed_entity(
+    entity_id: UUID, draft: DraftEntity, *, state: AgentState, deps: AgentDeps, skipped: list[str]
+) -> None:
+    """Best-effort: an embedding failure is noted, never fatal to the commit."""
+    try:
+        vector = await deps.embedder.aembed_query(_embed_text(draft))
+        await graph_service.set_entity_embedding(
+            deps.driver, state["owner_id"], str(entity_id), vector
+        )
+    except Exception as exc:  # noqa: BLE001
+        skipped.append(f"embed {draft.name}: {exc}")
+
+
 async def _commit_entities(
     drafts: list[DraftEntity], *, state: AgentState, deps: AgentDeps
-) -> tuple[dict[str, UUID], list[str]]:
+) -> tuple[dict[str, UUID], list[str], list[str]]:
     run_id = UUID(state["run_id"])
     id_map: dict[str, UUID] = {}
     committed = list(state["committed_entity_ids"])
+    skipped: list[str] = []
     for draft in drafts:
         if draft.existing_id is not None:
             id_map[draft.temp_id] = draft.existing_id
@@ -268,7 +305,8 @@ async def _commit_entities(
         id_map[draft.temp_id] = entity.id
         committed.append(str(entity.id))
         await agent_service.append_committed_entity(deps.pool, run_id, entity.id)
-    return id_map, committed
+        await _embed_entity(entity.id, draft, state=state, deps=deps, skipped=skipped)
+    return id_map, committed, skipped
 
 
 async def _commit_relationships(
@@ -300,12 +338,14 @@ async def _commit_relationships(
 
 async def commit_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     result = state["structured"] or StructuredResult()
-    id_map, committed_entities = await _commit_entities(result.entities, state=state, deps=deps)
+    id_map, committed_entities, entity_skipped = await _commit_entities(
+        result.entities, state=state, deps=deps
+    )
     committed_rels, rel_skipped = await _commit_relationships(
         result.relationships, id_map, state=state, deps=deps
     )
     return {
         "committed_entity_ids": committed_entities,
         "committed_relationship_ids": committed_rels,
-        "skipped": [*state["skipped"], *rel_skipped],
+        "skipped": [*state["skipped"], *entity_skipped, *rel_skipped],
     }

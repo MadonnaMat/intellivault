@@ -14,7 +14,13 @@ from app.agent import fetch, nodes
 from app.agent.graph_state import initial_state
 from app.agent.schemas import DigestEntity, GraphDigest, Plan, SearchHit, StructuredResult
 from app.config import Settings
-from tests.agent.conftest import FakeChatModel, FakePool, FakeSearchTool, fake_deps
+from tests.agent.conftest import (
+    FakeChatModel,
+    FakeEmbedder,
+    FakePool,
+    FakeSearchTool,
+    fake_deps,
+)
 from tests.graph.conftest import FakeNeo4jDriver
 
 _OWNER = str(uuid4())
@@ -111,6 +117,28 @@ async def test_survey_graph_node_caps_and_ranks_by_topic_relevance() -> None:
     assert [e.name for e in digest.entities] == ["Transistor History"]  # topic match wins
     assert digest.relationships == []  # the edge's other endpoint was dropped
     assert out["skipped"] == ["survey: showing 1 of 3 visible entities"]
+
+
+async def test_survey_graph_node_prefers_vector_search_hits() -> None:
+    a, b = _node_row("Alpha Corp"), _node_row("Beta Inst")
+    # list_graph (2 reads) then search_entities_by_vector (1 read, returns only b)
+    driver = FakeNeo4jDriver([a, b], [], [{**b, "score": 0.9}])
+    embedder = FakeEmbedder(vector=[0.5, 0.5])
+    deps = fake_deps(driver=driver, embedder=embedder)
+
+    out = await nodes.survey_graph_node(
+        _state(plan=Plan(summary="s", queries=["beta institute"])), deps=deps
+    )
+    assert [e.name for e in out["existing_graph"].entities] == ["Beta Inst"]
+    assert embedder.calls  # the topic + queries were embedded
+    assert out["skipped"] == ["survey: showing 1 of 2 visible entities"]
+
+
+async def test_survey_graph_node_falls_back_when_vector_search_is_empty() -> None:
+    driver = FakeNeo4jDriver([_node_row("Only One")], [])  # no 3rd response -> vector search []
+    deps = fake_deps(driver=driver, embedder=FakeEmbedder(vector=[0.1]))
+    out = await nodes.survey_graph_node(_state(), deps=deps)
+    assert [e.name for e in out["existing_graph"].entities] == ["Only One"]
 
 
 async def test_search_node_dedupes_caps_and_drops_ssrf_urls() -> None:
@@ -244,6 +272,37 @@ def test_text_flattens_list_and_non_string_content() -> None:
     assert nodes._text(["a", "b"]) == "a b"
     assert nodes._text(42) == "42"
     assert nodes._text("plain") == "plain"
+
+
+async def test_commit_node_embeds_each_new_entity() -> None:
+    structured = StructuredResult.model_validate(
+        {"entities": [{"temp_id": "e1", "name": "New Co", "kind": "org", "attributes": {"x": 1}}]}
+    )
+    # create_entity -> node; set_entity_embedding -> a matched row
+    driver = FakeNeo4jDriver([_node_row("New Co")], [{"id": "ok"}])
+    embedder = FakeEmbedder(vector=[0.3, 0.4])
+    deps = fake_deps(driver=driver, pool=FakePool(), embedder=embedder)
+
+    out = await nodes.commit_node(_state(structured=structured), deps=deps)
+
+    assert len(out["committed_entity_ids"]) == 1
+    assert embedder.calls == ["New Co (org)\n{\"x\": 1}"]
+    assert any("SET e.embedding" in q for q, _ in driver.calls)
+    assert not any(n.startswith("embed ") for n in out["skipped"])
+
+
+async def test_commit_node_survives_an_embedding_failure() -> None:
+    structured = StructuredResult.model_validate(
+        {"entities": [{"temp_id": "e1", "name": "New Co", "kind": "org"}]}
+    )
+    driver = FakeNeo4jDriver([_node_row("New Co")])
+    deps = fake_deps(
+        driver=driver, pool=FakePool(), embedder=FakeEmbedder(error=RuntimeError("ollama down"))
+    )
+    out = await nodes.commit_node(_state(structured=structured), deps=deps)
+
+    assert len(out["committed_entity_ids"]) == 1  # entity still committed
+    assert any("embed New Co: ollama down" in n for n in out["skipped"])
 
 
 async def test_commit_node_routes_a_rejected_edge_into_skipped() -> None:

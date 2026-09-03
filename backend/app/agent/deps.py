@@ -12,10 +12,12 @@ from dataclasses import dataclass
 
 import asyncpg
 import httpx
+from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from neo4j import AsyncDriver, AsyncGraphDatabase
 
+from app.agent.embeddings import build_embedder
 from app.agent.fetch import build_http_client
 from app.agent.llm import build_chat_model
 from app.agent.mcp import load_search_tool
@@ -31,6 +33,7 @@ class WorkerInfra:
     neo4j_driver: AsyncDriver
     http_client: httpx.AsyncClient
     chat_model: BaseChatModel
+    embedder: Embeddings
     search_tool: BaseTool
 
     async def aclose(self) -> None:
@@ -53,6 +56,7 @@ async def build_worker_infra(settings: Settings) -> WorkerInfra:
         neo4j_driver=neo4j_driver,
         http_client=build_http_client(settings),
         chat_model=build_chat_model(settings),
+        embedder=build_embedder(settings),
         search_tool=await load_search_tool(settings),
     )
 
@@ -66,6 +70,7 @@ class AgentDeps:
     driver: AsyncDriver
     http_client: httpx.AsyncClient
     chat_model: BaseChatModel
+    embedder: Embeddings
     search_tool: BaseTool
 
     @classmethod
@@ -76,5 +81,6 @@ class AgentDeps:
             driver=infra.neo4j_driver,
             http_client=infra.http_client,
             chat_model=infra.chat_model,
+            embedder=infra.embedder,
             search_tool=infra.search_tool,
         )
