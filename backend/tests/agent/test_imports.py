@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 _HEAVY = ["langgraph", "langchain_ollama", "langchain_mcp_adapters"]
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_importing_the_gateway_does_not_load_langgraph() -> None:
@@ -21,6 +23,12 @@ def test_importing_the_gateway_does_not_load_langgraph() -> None:
         "sys.exit(1 if bad else 0)"
     )
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=_BACKEND_ROOT,  # so `import app` resolves regardless of pytest's cwd
     )
-    assert result.returncode == 0, f"gateway import pulled in: {result.stdout.strip()}"
+    assert result.returncode == 0, (
+        f"gateway import pulled in {result.stdout.strip()} / {result.stderr.strip()}"
+    )

@@ -10,6 +10,7 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from neo4j import AsyncGraphDatabase
+from scalar_fastapi import add_scalar_reference
 
 from app import observability
 from app.agent import agent_router
@@ -65,7 +66,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Build and configure the FastAPI application."""
     settings = settings or get_settings()
 
-    app = FastAPI(title="IntelliVault", version="0.1.0", lifespan=lifespan)
+    # docs_enabled=false closes /docs, /redoc, /openapi.json and /scalar together.
+    docs = settings.docs_enabled
+    app = FastAPI(
+        title="IntelliVault",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
     app.state.settings = settings
 
     app.add_middleware(
@@ -81,6 +91,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(graph_router)
     app.include_router(agent_router)
+
+    if docs:
+        # Scalar API explorer at /scalar — served by us, so "try it out" is
+        # same-origin and carries the iv_session cookie with no CORS dance.
+        add_scalar_reference(app)
 
     return app
 

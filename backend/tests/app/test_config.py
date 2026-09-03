@@ -20,6 +20,8 @@ def test_defaults() -> None:
     assert settings.neo4j_uri == "bolt://localhost:7687"
     assert settings.ollama_chat_model == "qwen3:8b"
     assert settings.cors_origins == ["http://localhost:3000"]
+    assert settings.docs_enabled is True
+    assert _make(DOCS_ENABLED="false").docs_enabled is False
 
 
 def test_webauthn_defaults() -> None:

@@ -28,6 +28,11 @@ class Settings(BaseSettings):
 
     service_name: str = "intellivault-backend"
 
+    # Serve /docs, /redoc, /openapi.json and the Scalar API explorer at /scalar.
+    # Same-origin, so /scalar's "try it out" carries the iv_session cookie. Set
+    # false in production to close the interactive surface.
+    docs_enabled: bool = True
+
     # --- Neo4j ---
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"

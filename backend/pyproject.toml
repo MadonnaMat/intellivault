@@ -24,6 +24,7 @@ dependencies = [
     "langchain-mcp-adapters>=0.1",
     "openinference-instrumentation-langchain>=0.1.70",
     "langgraph>=1.2",
+    "scalar-fastapi>=1.9",
 ]
 
 [dependency-groups]
