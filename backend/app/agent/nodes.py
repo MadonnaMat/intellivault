@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 from uuid import UUID
 
@@ -32,7 +33,9 @@ from app.agent.schemas import (
     StructuredResult,
 )
 from app.graph import service as graph_service
-from app.graph.schemas import EntityInput, RelationshipInput
+from app.graph.schemas import Entity, EntityInput, RelationshipInput
+
+_TOKEN = re.compile(r"[a-z0-9]+")
 
 # --- plan / survey --------------------------------------------------------
 
@@ -49,15 +52,41 @@ async def plan_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     return {"plan": plan}
 
 
+def _tokens(text: str) -> set[str]:
+    return {t for t in _TOKEN.findall(text.lower()) if len(t) > 2}
+
+
+def _relevance_tokens(state: AgentState) -> set[str]:
+    plan = state["plan"]
+    parts = [state["topic"], *(plan.queries if plan is not None else [])]
+    return _tokens(" ".join(parts))
+
+
+def _rank_entities(entities: list[Entity], tokens: set[str], limit: int) -> list[Entity]:
+    """Most topic-relevant first (by name/kind token overlap), then newest."""
+
+    def key(entity: Entity) -> tuple[int, float]:
+        overlap = len(_tokens(f"{entity.name} {entity.kind}") & tokens)
+        return overlap, entity.created_at.timestamp()
+
+    return sorted(entities, key=key, reverse=True)[:limit]
+
+
 async def survey_graph_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     view = await graph_service.list_graph(deps.driver, state["owner_id"])
-    digest = GraphDigest(
-        entities=[DigestEntity(id=e.id, name=e.name, kind=e.kind) for e in view.entities],
-        relationships=[
-            DigestEdge(from_id=r.from_id, to_id=r.to_id, kind=r.kind) for r in view.relationships
-        ],
+    kept = _rank_entities(
+        view.entities, _relevance_tokens(state), deps.settings.agent_survey_max_entities
     )
-    return {"existing_graph": digest}
+    kept_ids = {e.id for e in kept}
+    edges = [r for r in view.relationships if r.from_id in kept_ids and r.to_id in kept_ids]
+    digest = GraphDigest(
+        entities=[DigestEntity(id=e.id, name=e.name, kind=e.kind) for e in kept],
+        relationships=[DigestEdge(from_id=r.from_id, to_id=r.to_id, kind=r.kind) for r in edges],
+    )
+    skipped = list(state["skipped"])
+    if len(view.entities) > len(kept):
+        skipped.append(f"survey: showing {len(kept)} of {len(view.entities)} visible entities")
+    return {"existing_graph": digest, "skipped": skipped}
 
 
 # --- search / fetch ------------------------------------------------------

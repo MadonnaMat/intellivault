@@ -72,9 +72,10 @@ def fake_deps(
     chat_model: FakeChatModel | None = None,
     search_tool: FakeSearchTool | None = None,
     http_client: httpx.AsyncClient | None = None,
+    settings: Settings | None = None,
 ) -> AgentDeps:
     return AgentDeps(
-        settings=_TEST_SETTINGS,
+        settings=settings or _TEST_SETTINGS,
         pool=cast(asyncpg.Pool, pool or FakePool()),
         driver=driver,
         http_client=http_client or cast(httpx.AsyncClient, object()),

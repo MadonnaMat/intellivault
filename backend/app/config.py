@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     agent_llm_temperature: float = 0.0
     # Cap on source pages a single run fetches (across all its search queries).
     agent_max_sources: int = 5
+    # Cap on entities from the caller's visible graph fed to the LLM as context
+    # (ranked by relevance to the topic, then recency) — the whole graph would
+    # blow a small model's context and grows unbounded with the public graph.
+    agent_survey_max_entities: int = 150
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

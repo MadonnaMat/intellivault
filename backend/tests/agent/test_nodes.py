@@ -13,10 +13,17 @@ import respx
 from app.agent import fetch, nodes
 from app.agent.graph_state import initial_state
 from app.agent.schemas import DigestEntity, GraphDigest, Plan, SearchHit, StructuredResult
+from app.config import Settings
 from tests.agent.conftest import FakeChatModel, FakePool, FakeSearchTool, fake_deps
 from tests.graph.conftest import FakeNeo4jDriver
 
 _OWNER = str(uuid4())
+_SETTINGS_WITH_CAP = Settings(
+    _env_file=None,
+    NEO4J_PASSWORD="n",
+    DATABASE_URL="postgresql://u:p@localhost:5432/db",
+    AGENT_SURVEY_MAX_ENTITIES="1",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -81,6 +88,29 @@ async def test_survey_graph_node_scopes_by_owner_and_builds_a_digest() -> None:
     assert isinstance(digest, GraphDigest)
     assert [e.name for e in digest.entities] == ["Bell Labs"]
     assert all(params["owner_id"] == _OWNER for _q, params in driver.calls)
+    assert out["skipped"] == []  # nothing truncated
+
+
+async def test_survey_graph_node_caps_and_ranks_by_topic_relevance() -> None:
+    entities = [
+        _node_row("Unrelated Widget"),
+        _node_row("Transistor History"),
+        _node_row("Also Off"),
+    ]
+    edge = _edge_row()
+    edge["from_id"] = entities[1]["e"]["id"]  # points at the kept entity
+    edge["to_id"] = entities[0]["e"]["id"]  # ...and one that gets dropped
+    driver = FakeNeo4jDriver(entities, [edge])
+    settings = _SETTINGS_WITH_CAP
+    deps = fake_deps(driver=driver, settings=settings)
+
+    out = await nodes.survey_graph_node(
+        _state(plan=Plan(summary="s", queries=["transistor invention"])), deps=deps
+    )
+    digest = out["existing_graph"]
+    assert [e.name for e in digest.entities] == ["Transistor History"]  # topic match wins
+    assert digest.relationships == []  # the edge's other endpoint was dropped
+    assert out["skipped"] == ["survey: showing 1 of 3 visible entities"]
 
 
 async def test_search_node_dedupes_caps_and_drops_ssrf_urls() -> None:

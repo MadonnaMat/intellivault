@@ -50,6 +50,9 @@ def test_agent_defaults() -> None:
     assert settings.agent_fetch_max_redirects == 3
     assert settings.agent_fetch_max_bytes == 2_000_000
     assert settings.agent_source_char_limit == 12_000
+    assert settings.agent_max_sources == 5
+    assert settings.agent_survey_max_entities == 150
+    assert settings.agent_search_mcp_url == "http://localhost:8770/mcp"
 
 
 def test_agent_overrides_from_env() -> None:
