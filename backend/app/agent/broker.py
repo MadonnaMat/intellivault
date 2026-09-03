@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from taskiq import AsyncBroker, InMemoryBroker, TaskiqEvents, TaskiqMessage, TaskiqMiddleware
+from taskiq.middlewares.taskiq_admin_middleware import TaskiqAdminMiddleware
 from taskiq.state import TaskiqState
 from taskiq_redis import ListQueueBroker
 
@@ -36,12 +37,21 @@ def build_broker(settings: Settings) -> AsyncBroker:
     """
     if not settings.redis_url or settings.redis_url == _MEMORY:
         return InMemoryBroker()
-    return ListQueueBroker(
+    broker: AsyncBroker = ListQueueBroker(
         settings.redis_url,
         queue_name="agent",
         socket_timeout=None,
         socket_connect_timeout=15,
     )
+    if settings.taskiq_admin_url:
+        broker.add_middlewares(
+            TaskiqAdminMiddleware(
+                url=settings.taskiq_admin_url,
+                api_token=settings.taskiq_admin_token,
+                taskiq_broker_name="agent",
+            )
+        )
+    return broker
 
 
 class AgentRunSpanMiddleware(TaskiqMiddleware):

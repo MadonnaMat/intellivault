@@ -94,6 +94,12 @@ class Settings(BaseSettings):
     # drafted entities are only committed once POST /agent/runs/{id}/review
     # approves them.
     agent_review_required: bool = False
+    # taskiq-admin dashboard (optional): when `taskiq_admin_url` is set, the
+    # broker reports every task's lifecycle (queued / started / finished / error)
+    # to it. Empty (the default) = no reporting. The token must match the
+    # dashboard container's TASKIQ_ADMIN_API_TOKEN.
+    taskiq_admin_url: str = ""
+    taskiq_admin_token: str = ""
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

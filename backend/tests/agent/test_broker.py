@@ -35,6 +35,30 @@ def test_redis_broker_uses_a_blocking_read_timeout() -> None:
     assert conn.socket_connect_timeout == 15
 
 
+def _admin_middlewares(broker: object) -> list[object]:
+    from taskiq.middlewares.taskiq_admin_middleware import TaskiqAdminMiddleware
+
+    return [m for m in getattr(broker, "middlewares", []) if isinstance(m, TaskiqAdminMiddleware)]
+
+
+def test_no_admin_middleware_without_a_configured_url() -> None:
+    broker = build_broker(_settings(REDIS_URL="redis://redis:6379/0"))
+    assert _admin_middlewares(broker) == []
+
+
+def test_admin_middleware_added_when_url_is_configured() -> None:
+    broker = build_broker(
+        _settings(
+            REDIS_URL="redis://redis:6379/0",
+            TASKIQ_ADMIN_URL="http://taskiq-admin:3000",
+            TASKIQ_ADMIN_TOKEN="secret",
+        )
+    )
+    added = _admin_middlewares(broker)
+    assert len(added) == 1
+    assert getattr(added[0], "url", None) == "http://taskiq-admin:3000"
+
+
 async def test_startup_builds_infra_and_shutdown_closes_it(monkeypatch: pytest.MonkeyPatch) -> None:
     closed: list[str] = []
 

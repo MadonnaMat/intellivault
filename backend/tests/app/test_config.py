@@ -61,6 +61,10 @@ def test_agent_defaults() -> None:
     assert settings.agent_critique_retries == 1
     assert settings.agent_review_required is False
     assert _make(AGENT_REVIEW_REQUIRED="true").agent_review_required is True
+    assert settings.taskiq_admin_url == ""
+    assert _make(TASKIQ_ADMIN_URL="http://taskiq-admin:3000").taskiq_admin_url == (
+        "http://taskiq-admin:3000"
+    )
 
 
 def test_agent_overrides_from_env() -> None:
