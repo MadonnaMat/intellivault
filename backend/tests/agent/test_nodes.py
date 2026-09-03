@@ -286,7 +286,7 @@ async def test_commit_node_embeds_each_new_entity() -> None:
     out = await nodes.commit_node(_state(structured=structured), deps=deps)
 
     assert len(out["committed_entity_ids"]) == 1
-    assert embedder.calls == ["New Co (org)\n{\"x\": 1}"]
+    assert embedder.calls == ['New Co (org)\n{"x": 1}']
     assert any("SET e.embedding" in q for q, _ in driver.calls)
     assert not any(n.startswith("embed ") for n in out["skipped"])
 

@@ -14,7 +14,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 
-from app.agent.deps import AgentDeps
+from app.agent.deps import AgentDeps, WorkerInfra
 from app.config import Settings
 
 Row = dict[str, Any]
@@ -138,6 +138,26 @@ class FakePool:
         return "UPDATE 1"
 
 
+def fake_infra(
+    *,
+    driver: Any,
+    pool: FakePool,
+    chat_model: FakeChatModel | None = None,
+    embedder: FakeEmbedder | None = None,
+    search_tool: FakeSearchTool | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> WorkerInfra:
+    return WorkerInfra(
+        settings=_TEST_SETTINGS,
+        pg_pool=cast(asyncpg.Pool, pool),
+        neo4j_driver=driver,
+        http_client=http_client or cast(httpx.AsyncClient, object()),
+        chat_model=cast(BaseChatModel, chat_model or FakeChatModel()),
+        embedder=cast(Embeddings, embedder or FakeEmbedder(error=RuntimeError("no embedder"))),
+        search_tool=cast(BaseTool, search_tool or FakeSearchTool([])),
+    )
+
+
 def as_pool(pool: FakePool) -> asyncpg.Pool:
     """Hand a FakePool to a service function typed for asyncpg.Pool (mypy)."""
     return cast(asyncpg.Pool, pool)
@@ -180,6 +200,7 @@ __all__ = [
     "Row",
     "as_pool",
     "fake_deps",
+    "fake_infra",
     "find_call",
     "make_run_row",
     "uuid4",

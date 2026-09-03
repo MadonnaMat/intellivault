@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from app.agent.deps import AgentDeps, WorkerInfra
 from app.config import Settings
 
@@ -43,6 +45,34 @@ async def test_aclose_closes_clients_in_reverse_order() -> None:
     log: list[str] = []
     await _infra(log).aclose()
     assert log == ["http", "neo4j", "pg"]
+
+
+async def test_build_worker_infra_opens_every_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.agent import deps
+
+    async def _fake_pool(*_a: object, **_k: object) -> str:
+        return "pool"
+
+    async def _fake_tool(_s: object) -> str:
+        return "tool"
+
+    monkeypatch.setattr("app.agent.deps.asyncpg.create_pool", _fake_pool)
+    monkeypatch.setattr("app.agent.deps.AsyncGraphDatabase.driver", lambda *_a, **_k: "driver")
+    monkeypatch.setattr(deps, "build_http_client", lambda _s: "http")
+    monkeypatch.setattr(deps, "build_chat_model", lambda _s: "chat")
+    monkeypatch.setattr(deps, "build_embedder", lambda _s: "embed")
+    monkeypatch.setattr(deps, "load_search_tool", _fake_tool)
+
+    infra = await deps.build_worker_infra(_SETTINGS)
+    got: list[object] = [
+        infra.pg_pool,
+        infra.neo4j_driver,
+        infra.http_client,
+        infra.chat_model,
+        infra.embedder,
+        infra.search_tool,
+    ]
+    assert got == ["pool", "driver", "http", "chat", "embed", "tool"]
 
 
 def test_from_infra_shares_the_worker_clients() -> None:

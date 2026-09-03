@@ -2,12 +2,21 @@
 
 Wiring here is best-effort: if Phoenix is unreachable at start-up the app still
 comes up, it just won't emit traces. Instrumentation is explicit (no
-``auto_instrument``) so only the FastAPI and HTTPX integrations are enabled.
+``auto_instrument``):
+
+* :func:`setup` — the FastAPI gateway: FastAPI + HTTPX spans.
+* :func:`setup_worker` — the taskiq agent worker: LangChain (LLM / chain) + HTTPX
+  spans. The worker also opens one root ``agent.run`` span per run
+  (``app.agent.broker.AgentRunSpanMiddleware``).
+
+Both share :func:`_register_tracer_provider`, which honours
+``settings.tracing_enabled`` (tests set it false) and never raises.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -15,34 +24,67 @@ from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
+TracerProvider = Any  # phoenix.otel.register's return type, kept import-free here
 
-def setup(app: FastAPI, settings: Settings) -> None:
-    """Register the tracer provider and instrument the app. Never raises."""
+
+def _register_tracer_provider(settings: Settings) -> TracerProvider | None:
+    """Build a Phoenix-exporting tracer provider, or None. Never raises."""
     if not settings.tracing_enabled:
         logger.info("tracing_enabled=false, skipping OTel/Phoenix setup")
-        return
-
+        return None
     try:
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
         from phoenix.otel import register
     except ImportError as exc:  # pragma: no cover - deps are declared, defensive only
         logger.warning("OTel/Phoenix packages missing, tracing disabled: %s", exc)
-        return
-
+        return None
     try:
-        tracer_provider = register(
+        return register(
             endpoint=settings.phoenix_collector_endpoint.rstrip("/") + "/v1/traces",
             project_name=settings.service_name,
             auto_instrument=False,
             set_global_tracer_provider=False,
             # BatchSpanProcessor exports on a background thread. The default
             # (SimpleSpanProcessor) exports synchronously on span end, which
-            # blocks every request for the full connect timeout when Phoenix
-            # is unreachable — the opposite of "best-effort".
+            # blocks for the full connect timeout when Phoenix is unreachable —
+            # the opposite of "best-effort".
             batch=True,
         )
-        FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer_provider)
-        HTTPXClientInstrumentor().instrument(tracer_provider=tracer_provider)
+    except Exception as exc:  # noqa: BLE001 - observability must not block start-up
+        logger.warning("Phoenix/OTel register failed: %s", exc)
+        return None
+
+
+def setup(app: FastAPI, settings: Settings) -> None:
+    """Register the tracer provider and instrument the gateway. Never raises."""
+    provider = _register_tracer_provider(settings)
+    if provider is None:
+        return
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
+        HTTPXClientInstrumentor().instrument(tracer_provider=provider)
     except Exception as exc:  # noqa: BLE001 - observability must not block start-up
         logger.warning("Phoenix/OTel instrumentation disabled: %s", exc)
+        return
+    app.state.tracer_provider = provider
+
+
+def setup_worker(settings: Settings) -> TracerProvider | None:
+    """Instrument the agent worker (LangChain + HTTPX). Never raises.
+
+    Returns the provider so ``AgentRunSpanMiddleware`` can open a per-run span.
+    """
+    provider = _register_tracer_provider(settings)
+    if provider is None:
+        return None
+    try:
+        from openinference.instrumentation.langchain import LangChainInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+
+        LangChainInstrumentor().instrument(tracer_provider=provider)
+        HTTPXClientInstrumentor().instrument(tracer_provider=provider)
+    except Exception as exc:  # noqa: BLE001 - observability must not block the worker
+        logger.warning("worker instrumentation disabled: %s", exc)
+    return provider
