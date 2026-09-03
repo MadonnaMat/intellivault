@@ -103,16 +103,23 @@ async def test_run_agent_parks_drafts_for_review_instead_of_committing() -> None
     _q, args = find_call(pool, "status = 'awaiting_review'")
     assert args[0] == _RUN
     assert json.loads(args[1]) == {"entities": [], "relationships": []}
+    # the research phase's partial result is parked too (analysis + skipped)
+    assert json.loads(args[2])["analysis"] == "(no sources were analysed)"
 
 
-async def test_commit_agent_run_commits_the_parked_drafts_and_succeeds() -> None:
-    pending = json.dumps(
-        {
-            "entities": [{"temp_id": "e1", "name": "Bell Labs", "kind": "org"}],
-            "relationships": [],
-        }
-    )
-    pool = FakePool(fetchrow=_meta_row(), fetchval=pending)
+async def test_commit_agent_run_commits_the_parked_drafts_and_keeps_the_analysis() -> None:
+    drafts = {
+        "entities": [{"temp_id": "e1", "name": "Bell Labs", "kind": "org"}],
+        "relationships": [],
+    }
+    partial = {
+        "analysis": "the transistor story",
+        "entities_created": 0,
+        "relationships_created": 0,
+        "skipped": ["fetch: dead-link"],
+    }
+    parked = {"pending": json.dumps(drafts), "result": json.dumps(partial)}
+    pool = FakePool(fetchrow=[_meta_row(), parked])
     infra = fake_infra(
         driver=FakeNeo4jDriver([node_row("Bell Labs")], [{"id": "ok"}]),
         pool=pool,
@@ -123,7 +130,10 @@ async def test_commit_agent_run_commits_the_parked_drafts_and_succeeds() -> None
 
     _q, ok_args = find_call(pool, "status = 'succeeded'")
     assert ok_args[0] == _RUN
-    assert json.loads(ok_args[1])["entities_created"] == 1
+    final = json.loads(ok_args[1])
+    assert final["entities_created"] == 1
+    assert final["analysis"] == "the transistor story"  # restored from the parked result
+    assert "fetch: dead-link" in final["skipped"]  # research-phase notes kept
 
 
 async def test_run_agent_marks_failed_and_reraises_on_a_node_error() -> None:

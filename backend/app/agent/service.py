@@ -148,18 +148,35 @@ async def get_run_internal(pool: asyncpg.Pool, run_id: UUID) -> AgentRunMeta:
     )
 
 
-async def load_pending(pool: asyncpg.Pool, run_id: UUID) -> StructuredResult:
-    """The drafts an approved run should commit."""
-    raw = await pool.fetchval(sql("get_pending"), run_id)
-    return _load(raw, StructuredResult) or StructuredResult()
+@dataclass(frozen=True, slots=True)
+class ParkedRun:
+    """What an approved run resumes from: the drafts to commit + the research
+    phase's partial result (analysis + skipped notes)."""
+
+    drafts: StructuredResult
+    partial: AgentRunResult | None
+
+
+async def load_parked(pool: asyncpg.Pool, run_id: UUID) -> ParkedRun:
+    row = await pool.fetchrow(sql("get_pending"), run_id)
+    if row is None:
+        return ParkedRun(StructuredResult(), None)
+    return ParkedRun(
+        drafts=_load(row["pending"], StructuredResult) or StructuredResult(),
+        partial=_load(row["result"], AgentRunResult),
+    )
 
 
 async def mark_running(pool: asyncpg.Pool, run_id: UUID) -> None:
     await pool.execute(sql("mark_running"), run_id)
 
 
-async def mark_awaiting_review(pool: asyncpg.Pool, run_id: UUID, pending: StructuredResult) -> None:
-    await pool.execute(sql("mark_awaiting_review"), run_id, pending.model_dump_json())
+async def mark_awaiting_review(
+    pool: asyncpg.Pool, run_id: UUID, pending: StructuredResult, partial: AgentRunResult
+) -> None:
+    await pool.execute(
+        sql("mark_awaiting_review"), run_id, pending.model_dump_json(), partial.model_dump_json()
+    )
 
 
 async def record_node(

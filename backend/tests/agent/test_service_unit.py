@@ -179,8 +179,21 @@ async def test_submit_review_404_when_missing() -> None:
     assert exc.value.status_code == 404
 
 
-async def test_load_pending_parses_the_column() -> None:
-    pending = json.dumps({"entities": [{"temp_id": "e1", "name": "P", "kind": "n"}]})
-    pool = FakePool(fetchval=pending)
-    result = await service.load_pending(as_pool(pool), uuid4())
-    assert result.entities[0].name == "P"
+async def test_load_parked_parses_drafts_and_partial_result() -> None:
+    row = make_run_row(
+        pending=json.dumps({"entities": [{"temp_id": "e1", "name": "P", "kind": "n"}]}),
+        result=json.dumps(
+            {"analysis": "found things", "entities_created": 0,
+             "relationships_created": 0, "skipped": ["fetch: x"]}
+        ),
+    )
+    parked = await service.load_parked(as_pool(FakePool(fetchrow=row)), uuid4())
+    assert parked.drafts.entities[0].name == "P"
+    assert parked.partial is not None
+    assert parked.partial.analysis == "found things"
+    assert parked.partial.skipped == ["fetch: x"]
+
+
+async def test_load_parked_tolerates_a_missing_row() -> None:
+    parked = await service.load_parked(as_pool(FakePool(fetchrow=None)), uuid4())
+    assert parked.drafts.entities == [] and parked.partial is None

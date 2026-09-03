@@ -69,7 +69,10 @@ async def _run_agent(run_id: str, infra: WorkerInfra) -> None:
         raise
 
     if review:
-        await service.mark_awaiting_review(pool, rid, state["structured"] or StructuredResult())
+        drafts = state["structured"] or StructuredResult()
+        # park the partial result too (analysis + skipped) so the commit phase
+        # can restore it — otherwise an approved run finishes with an empty analysis
+        await service.mark_awaiting_review(pool, rid, drafts, _result(state))
         return
     await _finish_succeeded(pool, rid, state)
 
@@ -84,7 +87,11 @@ async def _commit_agent_run(run_id: str, infra: WorkerInfra) -> None:
     meta = await service.get_run_internal(pool, rid)
     deps = AgentDeps.from_infra(infra)
     state = initial_state(meta.topic, meta.owner_id, run_id)
-    state["structured"] = await service.load_pending(pool, rid)
+    parked = await service.load_parked(pool, rid)
+    state["structured"] = parked.drafts
+    if parked.partial is not None:  # restore the research phase's analysis + notes
+        state["analysis"] = parked.partial.analysis
+        state["skipped"] = list(parked.partial.skipped)
     try:
         state.update(await commit_node(state, deps=deps))  # type: ignore[typeddict-item]
         state.update(await enrich_node(state, deps=deps))  # type: ignore[typeddict-item]
