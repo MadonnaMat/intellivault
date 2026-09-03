@@ -110,6 +110,35 @@ async def test_two_sources_fan_out_and_fan_back_in() -> None:
 
 
 @respx.mock
+async def test_a_revise_verdict_bounces_back_to_structure_once() -> None:
+    respx.get("https://src.test/1").mock(return_value=httpx.Response(200, html="<p>x</p>"))
+    chat = FakeChatModel(
+        structured={
+            "Plan": [{"summary": "s", "queries": ["q1"]}],
+            "StructuredResult": [{"entities": [{"temp_id": "e1", "name": "X", "kind": "org"}]}],
+            # default agent_critique_retries=1 -> one bounce, then proceed
+            "Critique": [{"verdict": "revise", "notes": "thin"}, {"verdict": "ok"}],
+        }
+    )
+    driver = FakeNeo4jDriver([], [], [_node_row("X")])
+
+    async with httpx.AsyncClient(follow_redirects=False) as client:
+        deps = fake_deps(
+            driver=driver,
+            pool=FakePool(),
+            chat_model=chat,
+            search_tool=FakeSearchTool([{"url": "https://src.test/1"}]),
+            http_client=client,
+        )
+        seen: list[str] = []
+        async for name, _ in run_graph(build_graph(deps), initial_state("t", _OWNER, _RUN)):
+            seen.append(name)
+
+    assert seen.count("structure") == 2 and seen.count("critique") == 2
+    assert seen.index("lookup") > seen.index("critique")
+
+
+@respx.mock
 async def test_full_run_does_not_abort_on_a_rejected_relationship() -> None:
     respx.get("https://src.test/1").mock(return_value=httpx.Response(200, html="<p>x</p>"))
     chat = _chat(

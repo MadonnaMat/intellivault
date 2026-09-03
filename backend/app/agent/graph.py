@@ -85,7 +85,10 @@ def _fan_out_analyze(state: AgentState) -> list[Send] | str:
 
 def _route_after_critique(deps: AgentDeps) -> Callable[[AgentState], str]:
     def route(state: AgentState) -> str:
-        exhausted = state["critique_attempts"] >= deps.settings.agent_critique_retries
+        # critique_node increments critique_attempts *before* this runs, so `>`
+        # (not `>=`): agent_critique_retries=1 means one bounce back to structure,
+        # matching the search side (where broaden increments after the route).
+        exhausted = state["critique_attempts"] > deps.settings.agent_critique_retries
         return "lookup" if state["critique"] is None or exhausted else "structure"
 
     return route
