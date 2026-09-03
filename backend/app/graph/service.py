@@ -153,6 +153,35 @@ async def delete_relationship(driver: AsyncDriver, owner_id: str, relationship_i
         raise HTTPException(_NOT_FOUND, "Relationship not found")
 
 
+async def set_entity_embedding(
+    driver: AsyncDriver, owner_id: str, entity_id: str, embedding: list[float]
+) -> None:
+    """Store (or replace) the vector for a caller-owned entity. 404 if not owned."""
+    rows = await _run(
+        driver,
+        cypher("set_entity_embedding"),
+        id=entity_id,
+        owner_id=owner_id,
+        embedding=embedding,
+    )
+    if not rows:
+        raise HTTPException(_NOT_FOUND, "Entity not found")
+
+
+async def search_entities_by_vector(
+    driver: AsyncDriver, owner_id: str, embedding: list[float], k: int
+) -> list[Entity]:
+    """The ``k`` visible entities nearest ``embedding`` (own + public only)."""
+    rows = await _run(
+        driver,
+        cypher("search_entities_by_vector"),
+        owner_id=owner_id,
+        embedding=embedding,
+        k=k,
+    )
+    return [_entity(row["e"]) for row in rows]
+
+
 async def list_graph(driver: AsyncDriver, owner_id: str) -> GraphView:
     # The two reads are independent (separate sessions) — run them concurrently.
     entity_rows, relationship_rows = await asyncio.gather(

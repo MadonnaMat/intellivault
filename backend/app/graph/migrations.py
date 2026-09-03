@@ -30,12 +30,18 @@ _LABEL = "_GraphMigration"
 _RECORD = f"CREATE (m:{_LABEL} {{id: $id, applied_at: datetime()}})"
 _UNRECORD = f"MATCH (m:{_LABEL} {{id: $id}}) DELETE m"
 
-# Schema commands (CREATE/DROP CONSTRAINT/INDEX) cannot share a transaction with
-# a data write, so a schema-only migration runs its statements auto-commit and
-# then records itself — safe because those statements are idempotent
-# (IF NOT EXISTS / IF EXISTS). Anything else runs in one transaction with the
-# tracking write, so a mid-way failure rolls the whole migration back.
-_SCHEMA_STATEMENT = re.compile(r"^\s*(CREATE|DROP)\s+(CONSTRAINT|INDEX)\b", re.IGNORECASE)
+# Schema commands (CREATE/DROP CONSTRAINT/INDEX, including typed indexes like
+# CREATE VECTOR INDEX / CREATE FULLTEXT INDEX) cannot share a transaction with a
+# data write, so a schema-only migration runs its statements auto-commit and then
+# records itself — safe because those statements are idempotent (IF NOT EXISTS /
+# IF EXISTS). Anything else runs in one transaction with the tracking write, so a
+# mid-way failure rolls the whole migration back.
+_SCHEMA_STATEMENT = re.compile(
+    r"^\s*(CREATE|DROP)\s+"
+    r"(?:(?:VECTOR|FULLTEXT|TEXT|POINT|RANGE|LOOKUP)\s+)?"
+    r"(CONSTRAINT|INDEX)\b",
+    re.IGNORECASE,
+)
 
 
 def _is_schema_only(statements: tuple[str, ...]) -> bool:

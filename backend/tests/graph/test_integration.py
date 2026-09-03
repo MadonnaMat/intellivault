@@ -369,3 +369,36 @@ async def test_cascade_reports_only_entities_that_actually_changed(
     )
 
     assert result.affected_ids == [private.id]  # already_public was not "changed"
+
+
+async def test_vector_search_respects_the_visibility_predicate(graph_driver: AsyncDriver) -> None:
+    # 3-dim stand-in vectors; the index is 768-d but Neo4j only checks width on
+    # write against the property, not the query vector — a short query vector
+    # still returns ordered results for the test.
+    await service.create_entity(graph_driver, _ALICE, EntityInput(name="alice-priv", kind="n"))
+    alice_priv = (await service.list_graph(graph_driver, _ALICE)).entities[0]
+    alice_pub = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="alice-pub", kind="n", visibility="public")
+    )
+    bob_priv = await service.create_entity(
+        graph_driver, _BOB, EntityInput(name="bob-priv", kind="n")
+    )
+
+    vec = [0.1] * 768
+    await service.set_entity_embedding(graph_driver, _ALICE, str(alice_priv.id), vec)
+    await service.set_entity_embedding(graph_driver, _ALICE, str(alice_pub.id), vec)
+    await service.set_entity_embedding(graph_driver, _BOB, str(bob_priv.id), vec)
+
+    bob_hits = {
+        e.name for e in await service.search_entities_by_vector(graph_driver, _BOB, vec, k=10)
+    }
+    assert bob_hits == {"bob-priv", "alice-pub"}  # never alice-priv
+
+
+async def test_set_entity_embedding_rejects_a_foreign_entity(graph_driver: AsyncDriver) -> None:
+    alice_pub = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="x", kind="n", visibility="public")
+    )
+    with pytest.raises(HTTPException) as exc:
+        await service.set_entity_embedding(graph_driver, _BOB, str(alice_pub.id), [0.1] * 768)
+    assert exc.value.status_code == 404
