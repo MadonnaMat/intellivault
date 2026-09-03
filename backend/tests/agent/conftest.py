@@ -8,8 +8,79 @@ from typing import Any, cast
 from uuid import uuid4
 
 import asyncpg
+import httpx
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.tools import BaseTool
+
+from app.agent.deps import AgentDeps
+from app.config import Settings
 
 Row = dict[str, Any]
+
+_TEST_SETTINGS = Settings(
+    _env_file=None,
+    NEO4J_PASSWORD="n",
+    DATABASE_URL="postgresql://u:p@localhost:5432/db",
+    OLLAMA_URL="http://ollama.test:11434",
+    AGENT_MAX_SOURCES="3",
+    AGENT_SOURCE_CHAR_LIMIT="2000",
+)
+
+
+class FakeRunnable:
+    def __init__(self, payloads: list[Any]) -> None:
+        self._payloads = list(payloads)
+
+    async def ainvoke(self, _messages: Any) -> Any:
+        return self._payloads.pop(0) if len(self._payloads) > 1 else self._payloads[0]
+
+
+class FakeChatModel:
+    """with_structured_output(schema) replays payloads keyed by schema name;
+    ainvoke() returns a fixed AIMessage (the analyze node)."""
+
+    def __init__(
+        self, *, structured: dict[str, list[Any]] | None = None, text: str = "analysis notes"
+    ) -> None:
+        self._structured = structured or {}
+        self._text = text
+
+    def with_structured_output(self, schema: Any, **_kw: Any) -> FakeRunnable:
+        return FakeRunnable(self._structured.get(schema.__name__, [{}]))
+
+    async def ainvoke(self, _messages: Any) -> AIMessage:
+        return AIMessage(content=self._text)
+
+
+class FakeSearchTool:
+    name = "search"
+
+    def __init__(self, results: Any) -> None:
+        self._results = results
+        self.queries: list[str] = []
+
+    async def ainvoke(self, args: dict[str, Any]) -> Any:
+        self.queries.append(args["query"])
+        return self._results
+
+
+def fake_deps(
+    *,
+    driver: Any,
+    pool: FakePool | None = None,
+    chat_model: FakeChatModel | None = None,
+    search_tool: FakeSearchTool | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> AgentDeps:
+    return AgentDeps(
+        settings=_TEST_SETTINGS,
+        pool=cast(asyncpg.Pool, pool or FakePool()),
+        driver=driver,
+        http_client=http_client or cast(httpx.AsyncClient, object()),
+        chat_model=cast(BaseChatModel, chat_model or FakeChatModel()),
+        search_tool=cast(BaseTool, search_tool or FakeSearchTool([])),
+    )
 
 
 class FakePool:
@@ -82,4 +153,14 @@ def find_call(pool: FakePool, needle: str) -> tuple[str, tuple[Any, ...]]:
     raise AssertionError(f"no call matching {needle!r} in {[q for q, _ in pool.calls]}")
 
 
-__all__ = ["FakePool", "Row", "as_pool", "find_call", "make_run_row", "uuid4"]
+__all__ = [
+    "FakeChatModel",
+    "FakePool",
+    "FakeSearchTool",
+    "Row",
+    "as_pool",
+    "fake_deps",
+    "find_call",
+    "make_run_row",
+    "uuid4",
+]

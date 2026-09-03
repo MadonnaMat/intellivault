@@ -23,6 +23,7 @@ dependencies = [
     "langchain-ollama>=1.0",
     "langchain-mcp-adapters>=0.1",
     "openinference-instrumentation-langchain>=0.1.70",
+    "langgraph>=1.2",
 ]
 
 [dependency-groups]

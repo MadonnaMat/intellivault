@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     agent_search_mcp_url: str = "http://localhost:8770/mcp"
     # Passed to ChatOllama — 0.0 keeps structure/plan extraction deterministic.
     agent_llm_temperature: float = 0.0
+    # Cap on source pages a single run fetches (across all its search queries).
+    agent_max_sources: int = 5
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

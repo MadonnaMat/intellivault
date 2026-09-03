@@ -9,7 +9,7 @@ matching :mod:`app.graph`.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 AgentRunStatus = Literal["queued", "running", "succeeded", "failed"]
 
 Topic = Annotated[str, Field(min_length=3, max_length=500)]
+_Name = Annotated[str, Field(min_length=1, max_length=200)]
+_Kind = Annotated[str, Field(min_length=1, max_length=100)]
 
 
 class AgentRunCreate(BaseModel):
@@ -30,6 +32,62 @@ class Plan(BaseModel):
 
     summary: str
     queries: Annotated[list[str], Field(min_length=1, max_length=8)]
+
+
+# --- worker-internal models (LangGraph state; not on any route) ---------------
+
+
+class SearchHit(BaseModel):
+    """One web-search result from the SearXNG MCP tool."""
+
+    url: str
+    title: str = ""
+    snippet: str = ""
+
+
+class DigestEntity(BaseModel):
+    id: UUID
+    name: str
+    kind: str
+
+
+class DigestEdge(BaseModel):
+    from_id: UUID
+    to_id: UUID
+    kind: str
+
+
+class GraphDigest(BaseModel):
+    """A compact view of the caller's currently-visible graph, for the LLM."""
+
+    entities: list[DigestEntity] = Field(default_factory=list)
+    relationships: list[DigestEdge] = Field(default_factory=list)
+
+
+class DraftEntity(BaseModel):
+    """A structure-node candidate. ``existing_id`` set ⇒ link, don't create."""
+
+    temp_id: str
+    name: _Name
+    kind: _Kind
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    existing_id: UUID | None = None
+
+
+class DraftRelationship(BaseModel):
+    """An edge between two drafts (``from_ref``/``to_ref`` = a temp_id or a UUID)."""
+
+    from_ref: str
+    to_ref: str
+    kind: _Kind
+
+
+class StructuredResult(BaseModel):
+    entities: list[DraftEntity] = Field(default_factory=list)
+    relationships: list[DraftRelationship] = Field(default_factory=list)
+
+
+# --- run record --------------------------------------------------------------
 
 
 class AgentRunResult(BaseModel):
