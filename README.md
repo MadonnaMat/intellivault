@@ -5,11 +5,12 @@ Neo4j graph/vector store, Postgres for auth/credential metadata, Arize-Phoenix f
 agent observability, and a local Ollama model server.
 
 One-command bring-up, a `/health` endpoint that deeply probes every dependency,
-passwordless WebAuthn passkey auth, and the first domain slice: a Neo4j
-knowledge graph of `Entity` nodes and `RELATED_TO` edges, each carrying an
-owner and a `private`/`public` visibility, with a `/graph` UI to build it and
-flip whole sub-graphs public. Full lint / type / complexity / test tooling on
-both sides.
+passwordless WebAuthn passkey auth, a Neo4j knowledge graph of `Entity` nodes
+and `RELATED_TO` edges (each with an owner + `private`/`public` visibility) with
+a `/graph` UI, and an **agent loop**: `POST /agent/runs` with a research topic
+and a separate taskiq worker runs a LangGraph pipeline (plan → search the web →
+read sources with a local LLM → structure entities → commit them to Neo4j as
+private nodes). Full lint / type / complexity / test tooling on both sides.
 
 ## Architecture
 
@@ -21,6 +22,9 @@ both sides.
 | Postgres   | `postgres:18-alpine`                   | user + auth/credential metadata; yoyo migrations |
 | Phoenix    | `arizephoenix/phoenix`                 | agent observability UI on `:6006` |
 | Ollama     | host-installed (GPU)                   | **not** in compose — see `scripts/ollama-dev` |
+| Redis      | `redis:7-alpine`                       | taskiq queue for the agent loop |
+| SearXNG + MCP | `searxng` + `search-mcp`            | the agent's web-search tool (streamable-HTTP MCP) |
+| agent-worker | `build: ./backend`                  | `taskiq worker` — runs the LangGraph pipeline, its own process |
 
 Ollama runs on the host so it can use the GPU; containers reach it at
 `host.docker.internal:11434`. `scripts/ollama-dev` is the single control point for
@@ -46,9 +50,9 @@ Then open:
 |----------------------------------|------|
 | http://localhost:3000            | frontend |
 | http://localhost:8000/health     | deep health JSON |
-| http://localhost:8000/docs       | API docs |
+| http://localhost:8000/docs       | API docs (`/scalar` for the interactive explorer) |
 | http://localhost:7474            | Neo4j browser |
-| http://localhost:6006            | Phoenix |
+| http://localhost:6006            | Phoenix (agent-run traces) |
 
 ## Development
 
@@ -59,7 +63,13 @@ make migrate         # apply Postgres migrations   (migrate-down / migrate-statu
 make graph-migrate   # apply Neo4j graph schema    (graph-migrate-down / -status)
 make gen-api-types   # FastAPI schema -> frontend/src/lib/api-schema.ts
 make test-db-up      # isolated Postgres test DB + disposable Neo4j (profile "test")
+make agent-worker    # run the agent-loop taskiq worker natively (compose runs its own)
 ```
+
+`make up` brings up the agent stack (Redis, SearXNG + `search-mcp`,
+`agent-worker`) alongside everything else. `make e2e` layers in
+`docker-compose.e2e.yml`, which swaps the worker's Ollama + search MCP for a
+single `mock-ai` container so the whole loop runs with no GPU and no network.
 
 Neo4j has no migration framework like yoyo; `backend/app/graph/migrations.py` is
 a small numbered-Cypher runner that tracks applied migrations as nodes in the
