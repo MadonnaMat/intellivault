@@ -57,44 +57,58 @@ class AgentRunSpanMiddleware(TaskiqMiddleware):
     """One root ``agent.run`` span per task, from the worker's tracer provider.
 
     taskiq does not carry OTel context across ``.kiq()`` — a fresh root span per
-    run is intended; LangChain's spans nest under it.
+    run is intended. The span is made the *current* context so LangChain's
+    LLM/chain spans nest under it, and the provider is flushed when the run ends
+    so the run's spans reach Phoenix even if the worker restarts right after.
     """
 
     def __init__(self) -> None:
         super().__init__()
-        self._spans: dict[str, Any] = {}
+        self._runs: dict[str, tuple[Any, Any]] = {}  # task_id -> (span, context token)
 
-    def _start_span(self, message: TaskiqMessage) -> Any | None:
-        provider = getattr(self.broker.state, "tracer_provider", None)
+    def _provider(self) -> Any | None:
+        return getattr(self.broker.state, "tracer_provider", None)
+
+    def pre_execute(self, message: TaskiqMessage) -> TaskiqMessage:
+        provider = self._provider()
         if provider is None:
-            return None
-        tracer = provider.get_tracer("app.agent")
-        return tracer.start_span(
+            return message
+        from opentelemetry import context as otel_context
+        from opentelemetry import trace as otel_trace
+
+        span = provider.get_tracer("app.agent").start_span(
             "agent.run",
             attributes={"taskiq.task": message.task_name, "taskiq.task_id": message.task_id},
         )
-
-    def pre_execute(self, message: TaskiqMessage) -> TaskiqMessage:
-        span = self._start_span(message)
-        if span is not None:
-            self._spans[message.task_id] = span
+        token = otel_context.attach(otel_trace.set_span_in_context(span))
+        self._runs[message.task_id] = (span, token)
         return message
 
-    def post_execute(self, message: TaskiqMessage, result: Any) -> None:
-        span = self._spans.pop(message.task_id, None)
-        if span is None:
+    def _end(self, task_id: str) -> None:
+        entry = self._runs.pop(task_id, None)
+        if entry is None:
             return
-        if getattr(result, "is_err", False):
-            span.set_attribute("error", True)
+        span, token = entry
         span.end()
+        from opentelemetry import context as otel_context
+
+        otel_context.detach(token)
+        provider = self._provider()
+        if provider is not None:
+            provider.force_flush()
+
+    def post_execute(self, message: TaskiqMessage, result: Any) -> None:
+        entry = self._runs.get(message.task_id)
+        if entry is not None and getattr(result, "is_err", False):
+            entry[0].set_attribute("error", True)
+        self._end(message.task_id)
 
     def on_error(self, message: TaskiqMessage, result: Any, exception: BaseException) -> None:
-        span = self._spans.pop(message.task_id, None)
-        if span is None:
-            return
-        span.record_exception(exception)
-        span.set_attribute("error", True)
-        span.end()
+        entry = self._runs.get(message.task_id)
+        if entry is not None:
+            entry[0].record_exception(exception)
+            entry[0].set_attribute("error", True)
+        self._end(message.task_id)
 
 
 broker = build_broker(get_settings())
@@ -118,3 +132,6 @@ async def _on_shutdown(state: TaskiqState) -> None:
     infra = getattr(state, "infra", None)
     if infra is not None:
         await infra.aclose()
+    provider = getattr(state, "tracer_provider", None)
+    if provider is not None:  # flush any spans still queued in the BatchSpanProcessor
+        provider.shutdown()

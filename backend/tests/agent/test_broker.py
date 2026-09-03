@@ -69,16 +69,33 @@ async def test_startup_builds_infra_and_shutdown_closes_it(monkeypatch: pytest.M
     async def _fake_build(_settings: Settings) -> _Infra:
         return _Infra()
 
+    provider = _Provider()
     monkeypatch.setattr("app.agent.deps.build_worker_infra", _fake_build)
-    monkeypatch.setattr("app.agent.broker.observability.setup_worker", lambda _s: "provider")
+    monkeypatch.setattr("app.agent.broker.observability.setup_worker", lambda _s: provider)
 
     state: Any = broker_mod.broker.state
     await broker_mod._on_startup(state)  # type: ignore[misc]
-    assert state.tracer_provider == "provider"
+    assert state.tracer_provider is provider
     assert isinstance(state.infra, _Infra)
 
     await broker_mod._on_shutdown(state)  # type: ignore[misc]
     assert closed == ["closed"]
+
+
+async def test_shutdown_flushes_the_tracer_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    flushed: list[str] = []
+    provider = type("P", (), {"shutdown": lambda self: flushed.append("shutdown")})()
+    monkeypatch.setattr("app.agent.deps.build_worker_infra", lambda _s: _async_none())
+    monkeypatch.setattr("app.agent.broker.observability.setup_worker", lambda _s: provider)
+
+    state: Any = broker_mod.broker.state
+    await broker_mod._on_startup(state)  # type: ignore[misc]
+    await broker_mod._on_shutdown(state)  # type: ignore[misc]
+    assert flushed == ["shutdown"]
+
+
+async def _async_none() -> None:
+    return None
 
 
 async def test_shutdown_without_infra_is_a_noop() -> None:
@@ -113,9 +130,16 @@ class _Tracer:
 class _Provider:
     def __init__(self) -> None:
         self.tracer = _Tracer()
+        self.flushes = 0
 
     def get_tracer(self, _name: str) -> _Tracer:
         return self.tracer
+
+    def force_flush(self, *_a: Any) -> None:
+        self.flushes += 1
+
+    def shutdown(self) -> None:
+        self.flushes += 1
 
 
 class _Msg:
@@ -149,12 +173,13 @@ def test_span_middleware_flags_an_errored_result() -> None:
     assert provider.tracer.span.ended is True
 
 
-def test_span_middleware_opens_and_closes_a_span() -> None:
+def test_span_middleware_opens_closes_and_flushes() -> None:
     provider = _Provider()
     mw = _middleware(provider)
     mw.pre_execute(_Msg())  # type: ignore[arg-type]
     mw.post_execute(_Msg(), type("R", (), {"is_err": False})())  # type: ignore[arg-type]
     assert provider.tracer.span.ended is True
+    assert provider.flushes == 1  # the run's spans are pushed to Phoenix immediately
 
 
 def test_span_middleware_records_an_error() -> None:
