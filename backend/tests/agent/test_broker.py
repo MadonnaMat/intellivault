@@ -69,7 +69,7 @@ async def test_startup_builds_infra_and_shutdown_closes_it(monkeypatch: pytest.M
     async def _fake_build(_settings: Settings) -> _Infra:
         return _Infra()
 
-    monkeypatch.setattr(broker_mod, "build_worker_infra", _fake_build)
+    monkeypatch.setattr("app.agent.deps.build_worker_infra", _fake_build)
     monkeypatch.setattr("app.agent.broker.observability.setup_worker", lambda _s: "provider")
 
     state: Any = broker_mod.broker.state

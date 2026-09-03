@@ -3,19 +3,25 @@
 ``run_agent`` runs the research graph (and, when review isn't required, commits).
 ``commit_agent_run`` is the second phase — it runs after an approval and commits
 the parked drafts. ``_*`` are the real logic, unit-tested with a fake WorkerInfra.
+
+langgraph / langchain / the node modules are imported *inside* the task bodies,
+never at module load: ``service.enqueue_run`` imports this module on the gateway
+to reach ``run_agent.kiq``, and that path must stay langgraph-free
+(``tests/agent/test_imports.py``).
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.agent import service
 from app.agent.broker import broker
-from app.agent.deps import AgentDeps, WorkerInfra
-from app.agent.graph import build_graph, initial_state, run_graph
-from app.agent.graph_state import AgentState
-from app.agent.nodes import commit_node, enrich_node
+from app.agent.graph_state import AgentState, initial_state
 from app.agent.schemas import AgentRunResult, StructuredResult
+
+if TYPE_CHECKING:
+    from app.agent.deps import WorkerInfra
 
 
 def _result(state: AgentState) -> AgentRunResult:
@@ -40,6 +46,9 @@ async def _finish_succeeded(pool: object, rid: UUID, state: AgentState) -> None:
 
 
 async def _run_agent(run_id: str, infra: WorkerInfra) -> None:
+    from app.agent.deps import AgentDeps
+    from app.agent.graph import build_graph, run_graph
+
     pool = infra.pg_pool
     rid = UUID(run_id)
     meta = await service.get_run_internal(pool, rid)
@@ -67,6 +76,9 @@ async def _run_agent(run_id: str, infra: WorkerInfra) -> None:
 
 async def _commit_agent_run(run_id: str, infra: WorkerInfra) -> None:
     """Phase two — commit the drafts an approval unparked."""
+    from app.agent.deps import AgentDeps
+    from app.agent.nodes import commit_node, enrich_node
+
     pool = infra.pg_pool
     rid = UUID(run_id)
     meta = await service.get_run_internal(pool, rid)

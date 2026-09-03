@@ -20,7 +20,6 @@ from taskiq.state import TaskiqState
 from taskiq_redis import ListQueueBroker
 
 from app import observability
-from app.agent.deps import build_worker_infra
 from app.config import Settings, get_settings
 
 _MEMORY = "memory://"
@@ -104,6 +103,10 @@ broker.add_middlewares(AgentRunSpanMiddleware())
 
 @broker.on_event(TaskiqEvents.WORKER_STARTUP)
 async def _on_startup(state: TaskiqState) -> None:
+    # Imported here, not at module load: the gateway imports this module (via
+    # `service.enqueue_run` -> `app.agent.tasks`) and must not pull in langchain.
+    from app.agent.deps import build_worker_infra
+
     settings = get_settings()
     state.settings = settings
     state.tracer_provider = observability.setup_worker(settings)
