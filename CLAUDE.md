@@ -23,11 +23,12 @@ Project-level instructions for Claude Code working in this repository.
   the only thing that starts/stops it or pulls models. This mirrors
   `~/go-rag-lab`.
 - Compose overrides the `localhost` defaults from `.env.example` with in-network
-  hostnames (`postgres`, `neo4j`, `phoenix`, `redis`, `search-mcp`) for the
-  `backend` / `agent-worker` containers. The agent stack adds `redis` (taskiq
-  queue), `searxng` + `search-mcp` (web search MCP), and `agent-worker` (the
-  taskiq worker, its own process). `docker-compose.e2e.yml` swaps Ollama +
-  search-mcp for one `mock-ai` container for the Playwright suite.
+  hostnames (`postgres`, `neo4j`, `phoenix`, `redis`, `search-mcp`,
+  `wikipedia-mcp`) for the `backend` / `agent-worker` containers. The agent stack
+  adds `redis` (taskiq queue), `searxng` + `search-mcp` (web search MCP),
+  `wikipedia-mcp` (Wikipedia lookup MCP), and `agent-worker` (the taskiq worker,
+  its own process). `docker-compose.e2e.yml` swaps Ollama + both MCPs for one
+  `mock-ai` container for the Playwright suite.
 - **Config** lives in `backend/app/config.py` (pydantic-settings). Secrets
   (`NEO4J_PASSWORD`, `DATABASE_URL`) are required — no hardcoded defaults. The
   repo-root `.env` (gitignored) feeds native runs; compose injects env directly.
@@ -95,29 +96,46 @@ Project-level instructions for Claude Code working in this repository.
   `search_*` as a tenant-visible read.
 - **Agent** (`app/agent/`) is the research loop: `POST /agent/runs` inserts a
   durable `agent_runs` row (Postgres) and enqueues a Redis job; a **separate
-  `taskiq worker` process** (`agent-worker` container) runs a LangGraph pipeline
-  — `plan → survey_graph → search → fetch → analyze → structure → commit` — and
+  `taskiq worker` process** (`agent-worker` container) runs a LangGraph graph and
   updates the row per node so `GET /agent/runs/{id}` shows live progress. The
-  worker opens its own `WorkerInfra` (pool / driver / httpx / `ChatOllama` /
-  `OllamaEmbeddings` / the SearXNG `search` tool from the MCP server) in
-  `WORKER_STARTUP`. **`commit_node` writes only through `app.graph.service`**
-  (`create_entity` / `create_relationship`, `visibility="private"`) — no new
-  Cypher — so every tenant predicate holds; a service 404/422 on an edge goes to
-  the run's `skipped`, never fatal. The batch is **not** atomic —
-  `append_committed_*` records each write as it lands. `survey_graph_node` feeds
-  the LLM a *bounded* digest: vector-search the topic (`agent_survey_max_entities`
-  cap), falling back to lexical ranking. `fetch.guard_url` resolves every URL +
-  redirect hop and refuses private / loopback / link-local / unresolvable hosts.
-  The gateway process never imports langgraph (`enqueue_run` imports `tasks`
-  lazily; `tests/agent/test_imports.py` guards it). Tests: unit with hand-rolled
-  fakes; `tests/agent/test_integration.py` runs the real graph against
-  `neo4j-test` with Ollama over `respx`; `frontend/e2e/agent.spec.ts` drives the
-  full containerised loop with the **`mock-ai`** container (`docker-compose.e2e.yml`,
-  CopilotKit aimock — chat + MCP; embeddings unmocked, which is fine since
-  embedding is best-effort). `search_mcp.py` / `AGENT_SEARCH_MCP_*` /
-  compose `search-mcp` are all named for `search` so a later non-search MCP gets
-  its own module. Prompts are Markdown under `app/agent/prompts/` (loaded like
-  the SQL). Interactive API surface: **Scalar at `/scalar`**, gated with
+  graph (`app/agent/graph.py`, nodes in `app/agent/nodes/`) is mostly linear —
+  `plan → survey_graph → search → fetch → analyze → synthesize → structure →
+  critique → lookup → commit → enrich` — with three points of real structure:
+  `search` loops back through `broaden_queries` (bounded by
+  `agent_search_retries`) when a round finds nothing; `fetch` fans out one
+  `analyze_one` per source (`Send`) and `synthesize` folds the per-source notes
+  back in (an `operator.add` reducer on `source_notes`); `critique` bounces a
+  weak draft back to `structure` (bounded by `agent_critique_retries`). `lookup`
+  enriches each draft from the **Wikipedia MCP** (`wikipedia_mcp.py`, `mcp/wikipedia-mcp`
+  compose service); `enrich` cross-links freshly-committed entities into the
+  existing graph via vector search. The worker opens its own `WorkerInfra` (pool
+  / driver / httpx / `ChatOllama` / `OllamaEmbeddings` / the SearXNG `search`
+  tool / the Wikipedia tools) in `WORKER_STARTUP`. **`commit_node` writes only
+  through `app.graph.service`** (`create_entity` / `create_relationship`,
+  `visibility="private"`) — no new Cypher — so every tenant predicate holds; a
+  service 404/422 on an edge goes to the run's `skipped`, never fatal. The batch
+  is **not** atomic — `append_committed_*` records each write as it lands.
+  `survey_graph_node` feeds the LLM a *bounded* digest: vector-search the topic
+  (`agent_survey_max_entities` cap), falling back to lexical ranking.
+  `fetch.guard_url` resolves every URL + redirect hop and refuses private /
+  loopback / link-local / unresolvable hosts. **Human review** (`AGENT_REVIEW_REQUIRED`,
+  default false): `build_graph(deps, review=True)` compiles a graph that stops at
+  `lookup`; the run parks its drafts in `agent_runs.pending` at
+  `status=awaiting_review`; `POST /agent/runs/{id}/review` approves (optionally
+  editing the `entities`/`relationships`) → `status=running` + a
+  `commit_agent_run` task running `commit_node` + `enrich_node`, or rejects →
+  `status=cancelled` with nothing written. The gateway process never imports
+  langgraph (`enqueue_run` / `enqueue_commit` import `tasks` lazily;
+  `tests/agent/test_imports.py` guards it). Tests: unit with hand-rolled fakes;
+  `tests/agent/test_integration.py` runs the real graph against `neo4j-test` with
+  Ollama over `respx`; `frontend/e2e/agent.spec.ts` drives the full containerised
+  loop with the **`mock-ai`** container (`docker-compose.e2e.yml`, CopilotKit
+  aimock — chat + MCP; embeddings unmocked, which is fine since embedding is
+  best-effort). Each MCP has its own module (`search_mcp.py` /
+  `AGENT_SEARCH_MCP_*` / compose `search-mcp`; `wikipedia_mcp.py` /
+  `AGENT_WIKIPEDIA_MCP_*` / compose `wikipedia-mcp`), sharing `mcp_client.py`.
+  Prompts are Markdown under `app/agent/prompts/` (loaded like the SQL).
+  Interactive API surface: **Scalar at `/scalar`**, gated with
   `/docs`/`/redoc`/`/openapi.json` behind `settings.docs_enabled` (default true).
 - **Migrations**: Postgres uses the `yoyo` CLI (plain SQL + `.rollback.sql` in
   `backend/migrations/`) — `make migrate` / `docker compose run --rm migrate`.
