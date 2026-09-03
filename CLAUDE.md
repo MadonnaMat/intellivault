@@ -26,9 +26,10 @@ Project-level instructions for Claude Code working in this repository.
   hostnames (`postgres`, `neo4j`, `phoenix`, `redis`, `search-mcp`,
   `wikipedia-mcp`) for the `backend` / `agent-worker` containers. The agent stack
   adds `redis` (taskiq queue), `searxng` + `search-mcp` (web search MCP),
-  `wikipedia-mcp` (Wikipedia lookup MCP), and `agent-worker` (the taskiq worker,
-  its own process). `docker-compose.e2e.yml` swaps Ollama + both MCPs for one
-  `mock-ai` container for the Playwright suite.
+  `wikipedia-mcp` (Wikipedia lookup MCP), `taskiq-admin` (job-queue dashboard on
+  `:3300`), and `agent-worker` (the taskiq worker, its own process).
+  `docker-compose.e2e.yml` swaps Ollama + both MCPs for one `mock-ai` container
+  and blanks `TASKIQ_ADMIN_URL` for the Playwright suite.
 - **Config** lives in `backend/app/config.py` (pydantic-settings). Secrets
   (`NEO4J_PASSWORD`, `DATABASE_URL`) are required — no hardcoded defaults. The
   repo-root `.env` (gitignored) feeds native runs; compose injects env directly.
@@ -135,8 +136,12 @@ Project-level instructions for Claude Code working in this repository.
   `AGENT_SEARCH_MCP_*` / compose `search-mcp`; `wikipedia_mcp.py` /
   `AGENT_WIKIPEDIA_MCP_*` / compose `wikipedia-mcp`), sharing `mcp_client.py`.
   Prompts are Markdown under `app/agent/prompts/` (loaded like the SQL).
-  Interactive API surface: **Scalar at `/scalar`**, gated with
-  `/docs`/`/redoc`/`/openapi.json` behind `settings.docs_enabled` (default true).
+  When `settings.taskiq_admin_url` is set, `build_broker` adds
+  `TaskiqAdminMiddleware` so every job's lifecycle (queued / started / finished /
+  errored) shows in the **`taskiq-admin`** dashboard — complementary to Phoenix
+  (LLM/graph spans) and `agent_runs` (the domain record). Interactive API
+  surface: **Scalar at `/scalar`**, gated with `/docs`/`/redoc`/`/openapi.json`
+  behind `settings.docs_enabled` (default true).
 - **Migrations**: Postgres uses the `yoyo` CLI (plain SQL + `.rollback.sql` in
   `backend/migrations/`) — `make migrate` / `docker compose run --rm migrate`.
   Neo4j has no yoyo equivalent, so `app/graph/migrations.py` is a small

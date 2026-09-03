@@ -118,6 +118,8 @@ services:
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
       AGENT_SEARCH_MCP_URL: http://search-mcp:8770/mcp
       AGENT_WIKIPEDIA_MCP_URL: http://wikipedia-mcp:8771/mcp
+      TASKIQ_ADMIN_URL: ${TASKIQ_ADMIN_URL-http://taskiq-admin:3000}
+      TASKIQ_ADMIN_TOKEN: ${TASKIQ_ADMIN_TOKEN:-devadmintoken-change-me}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-IntelliVault}
@@ -184,6 +186,24 @@ services:
     ports:
       - "${AGENT_WIKIPEDIA_MCP_PORT:-8771}:8771"
 
+  # taskiq-admin — a web dashboard for the agent job queue (queued / started /
+  # finished / errored, args, tracebacks, durations). The broker only reports to
+  # it when TASKIQ_ADMIN_URL is set on backend + agent-worker (below). Its own
+  # SQLite store lives in a volume; Postgres `agent_runs` stays the source of
+  # truth for run state.
+  taskiq-admin:
+    image: ghcr.io/taskiq-python/taskiq-admin:latest
+    environment:
+      TASKIQ_ADMIN_API_TOKEN: ${TASKIQ_ADMIN_TOKEN:-devadmintoken-change-me}
+      TASKIQ_ADMIN_DB_DRIVER: sqlite
+      TASKIQ_ADMIN_DB_FILE_PATH: /usr/database/taskiq-admin.db
+    volumes:
+      - taskiq_admin_data:/usr/database
+    ports:
+      # 3000 is the frontend — the dashboard gets 3300 by default.
+      - "${TASKIQ_ADMIN_PORT:-3300}:3000"
+    restart: unless-stopped
+
   # The agent loop worker — a separate process, not in the request path.
   # `taskiq worker` pulls jobs off the Redis queue and runs the LangGraph.
   agent-worker:
@@ -209,6 +229,8 @@ services:
         condition: service_started
       wikipedia-mcp:
         condition: service_started
+      taskiq-admin:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -223,6 +245,8 @@ services:
       AGENT_SEARCH_MCP_URL: http://search-mcp:8770/mcp
       AGENT_WIKIPEDIA_MCP_URL: http://wikipedia-mcp:8771/mcp
       AGENT_WORKER_CONCURRENCY: ${AGENT_WORKER_CONCURRENCY:-4}
+      TASKIQ_ADMIN_URL: ${TASKIQ_ADMIN_URL-http://taskiq-admin:3000}
+      TASKIQ_ADMIN_TOKEN: ${TASKIQ_ADMIN_TOKEN:-devadmintoken-change-me}
 
   frontend:
     build:
@@ -279,3 +303,4 @@ volumes:
   neo4j_data:
   neo4j_logs:
   phoenix_data:
+  taskiq_admin_data:

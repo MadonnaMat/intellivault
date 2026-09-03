@@ -28,6 +28,7 @@ Full lint / type / complexity / test tooling on both sides.
 | Redis      | `redis:7-alpine`                       | taskiq queue for the agent loop |
 | SearXNG + MCP | `searxng` + `search-mcp`            | the agent's web-search tool (streamable-HTTP MCP) |
 | wikipedia-mcp | `mcp/wikipedia-mcp`                 | the agent's Wikipedia lookup tool (streamable-HTTP MCP) |
+| taskiq-admin | `ghcr.io/taskiq-python/taskiq-admin` | job-queue dashboard on `:3300` (queued / started / finished / errored) |
 | agent-worker | `build: ./backend`                  | `taskiq worker` — runs the LangGraph graph, its own process |
 
 Ollama runs on the host so it can use the GPU; containers reach it at
@@ -57,6 +58,7 @@ Then open:
 | http://localhost:8000/docs       | API docs (`/scalar` for the interactive explorer) |
 | http://localhost:7474            | Neo4j browser |
 | http://localhost:6006            | Phoenix (agent-run traces) |
+| http://localhost:3300            | taskiq-admin (agent job queue) — token `TASKIQ_ADMIN_TOKEN` |
 
 ## Development
 
@@ -71,7 +73,8 @@ make agent-worker    # run the agent-loop taskiq worker natively (compose runs i
 ```
 
 `make up` brings up the agent stack (Redis, SearXNG + `search-mcp`,
-`wikipedia-mcp`, `agent-worker`) alongside everything else. `make e2e` layers in
+`wikipedia-mcp`, `taskiq-admin`, `agent-worker`) alongside everything else.
+`make e2e` layers in
 `docker-compose.e2e.yml`, which swaps the worker's Ollama + both MCPs for a
 single `mock-ai` container so the whole loop runs with no GPU and no network.
 

@@ -25,8 +25,17 @@ services:
       retries: 15
       start_period: 3s
 
+  # taskiq-admin isn't in the e2e stack — don't fire lifecycle POSTs at a host
+  # that isn't there.
+  backend:
+    environment:
+      TASKIQ_ADMIN_URL: ""
+
   agent-worker:
+    depends_on:
+      taskiq-admin: !reset null
     environment:
       OLLAMA_URL: http://mock-ai:4010
       AGENT_SEARCH_MCP_URL: http://mock-ai:4010/mcp
       AGENT_WIKIPEDIA_MCP_URL: http://mock-ai:4010/mcp
+      TASKIQ_ADMIN_URL: ""
