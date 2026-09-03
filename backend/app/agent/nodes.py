@@ -108,8 +108,23 @@ async def survey_graph_node(state: AgentState, *, deps: AgentDeps) -> dict[str, 
 # --- search / fetch ------------------------------------------------------
 
 
-def _as_items(raw: Any) -> list[Any]:
-    """Normalise the MCP search tool's output (JSON string / dict / list) to a list."""
+def _is_text_blocks(raw: Any) -> bool:
+    """MCP tool output arrives as ``[{"type": "text", "text": "..."}]`` content blocks."""
+    return (
+        isinstance(raw, list)
+        and len(raw) > 0
+        and all(isinstance(b, dict) and b.get("type") == "text" for b in raw)
+    )
+
+
+def _as_items(raw: Any, *, _unwrapped: bool = False) -> list[Any]:
+    """Normalise the MCP search tool's output to a list of result dicts.
+
+    Handles a JSON string, a dict wrapper (``results``/``items``), a plain list
+    of results, and MCP ``[{"type": "text", "text": "<json>"}]`` content blocks.
+    """
+    if _is_text_blocks(raw) and not _unwrapped:
+        return _as_items("".join(str(b.get("text", "")) for b in raw), _unwrapped=True)
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)

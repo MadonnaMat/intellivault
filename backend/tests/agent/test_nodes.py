@@ -262,6 +262,9 @@ async def test_commit_node_creates_private_nodes_and_records_progress() -> None:
         ("not json", []),
         (12345, []),
         (["plain string", {"title": "no url"}], []),
+        # MCP tools return their result as text content blocks
+        ([{"type": "text", "text": '[{"url": "https://mcp.test/1"}]'}], ["https://mcp.test/1"]),
+        ([{"type": "text", "text": "not json either"}], []),
     ],
 )
 def test_parse_search_result_normalises_shapes(raw: Any, expected_urls: list[str]) -> None:
