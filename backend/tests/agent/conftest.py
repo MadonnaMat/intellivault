@@ -120,14 +120,17 @@ class FakeTool:
 
 
 class FakeSearchTool(FakeTool):
-    name = "search"
+    name = "searxng_web_search"
 
     def __init__(self, results: Any) -> None:
-        super().__init__("search", results)
-        self.queries = self.calls  # back-compat alias
+        super().__init__("searxng_web_search", results)
+        self.queries: list[str] = []
+        self.args: list[dict[str, Any]] = []
 
     async def ainvoke(self, args: dict[str, Any]) -> Any:
-        return await super().ainvoke(args["query"])
+        self.args.append(args)
+        self.queries.append(args["query"])
+        return self._result
 
 
 def fake_wikipedia_tools(**results: Any) -> dict[str, FakeTool]:
@@ -143,6 +146,7 @@ def fake_deps(
     chat_model: FakeChatModel | None = None,
     embedder: FakeEmbedder | None = None,
     search_tool: FakeSearchTool | None = None,
+    no_search_tool: bool = False,
     wikipedia_tools: dict[str, FakeTool] | None = None,
     http_client: httpx.AsyncClient | None = None,
     settings: Settings | None = None,
@@ -154,7 +158,7 @@ def fake_deps(
         http_client=http_client or cast(httpx.AsyncClient, object()),
         chat_model=cast(BaseChatModel, chat_model or FakeChatModel()),
         embedder=cast(Embeddings, embedder or FakeEmbedder(error=RuntimeError("no embedder"))),
-        search_tool=cast(BaseTool, search_tool or FakeSearchTool([])),
+        search_tool=None if no_search_tool else cast(BaseTool, search_tool or FakeSearchTool([])),
         wikipedia_tools=cast(
             "dict[str, BaseTool]",
             fake_wikipedia_tools() if wikipedia_tools is None else wikipedia_tools,

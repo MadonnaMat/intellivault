@@ -64,16 +64,24 @@ async def test_load_mcp_tools_builds_a_streamable_http_connection(
     assert _FakeClient.last == {"srv": {"url": "http://x/mcp", "transport": "streamable_http"}}
 
 
-async def test_load_search_tool_picks_search(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch(monkeypatch, [SimpleNamespace(name="fetch"), SimpleNamespace(name="search")])
+async def test_load_search_tool_picks_the_searxng_web_search_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch(
+        monkeypatch,
+        [SimpleNamespace(name="web_url_read"), SimpleNamespace(name="searxng_web_search")],
+    )
     tool = await search_mcp.load_search_tool(_SETTINGS)
-    assert tool.name == "search"
+    assert tool is not None and tool.name == "searxng_web_search"
 
 
-async def test_load_search_tool_raises_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_load_search_tool_degrades_to_none_when_absent(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     _patch(monkeypatch, [SimpleNamespace(name="extract")])
-    with pytest.raises(LookupError, match="extract"):
-        await search_mcp.load_search_tool(_SETTINGS)
+    with caplog.at_level("WARNING"):
+        assert await search_mcp.load_search_tool(_SETTINGS) is None
+    assert "search step is disabled" in caplog.text
 
 
 async def test_load_wikipedia_tools_returns_the_wanted_set(monkeypatch: pytest.MonkeyPatch) -> None:

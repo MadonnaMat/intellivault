@@ -135,8 +135,11 @@ Project-level instructions for Claude Code working in this repository.
   loop with the **`mock-ai`** container (`docker-compose.e2e.yml`, CopilotKit
   aimock — chat + MCP; embeddings unmocked, which is fine since embedding is
   best-effort). Each MCP has its own module (`search_mcp.py` /
-  `AGENT_SEARCH_MCP_*` / compose `search-mcp`; `wikipedia_mcp.py` /
-  `AGENT_WIKIPEDIA_MCP_*` / compose `wikipedia-mcp`), sharing `mcp_client.py`.
+  `AGENT_SEARCH_MCP_*` / compose `search-mcp` — `isokoliuk/mcp-searxng`, HTTP
+  transport via `MCP_HTTP_PORT`, tool `searxng_web_search` asked for compact
+  JSON; `wikipedia_mcp.py` / `AGENT_WIKIPEDIA_MCP_*` / compose `wikipedia-mcp`),
+  sharing `mcp_client.py`. A missing MCP tool disables that step for the run
+  (`search_tool`/`wikipedia_tools` degrade), never crash-loops the worker.
   Prompts are Markdown under `app/agent/prompts/` (loaded like the SQL).
   When `settings.taskiq_admin_url` is set, `build_broker` adds
   `TaskiqAdminMiddleware` so every job's lifecycle (queued / started / finished /

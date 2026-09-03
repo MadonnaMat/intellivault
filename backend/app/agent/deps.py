@@ -35,7 +35,7 @@ class WorkerInfra:
     http_client: httpx.AsyncClient
     chat_model: BaseChatModel
     embedder: Embeddings
-    search_tool: BaseTool
+    search_tool: BaseTool | None  # None -> the search node no-ops (MCP unavailable)
     wikipedia_tools: dict[str, BaseTool]
 
     async def aclose(self) -> None:
@@ -74,7 +74,7 @@ class AgentDeps:
     http_client: httpx.AsyncClient
     chat_model: BaseChatModel
     embedder: Embeddings
-    search_tool: BaseTool
+    search_tool: BaseTool | None
     wikipedia_tools: dict[str, BaseTool]
 
     @classmethod

@@ -1,4 +1,4 @@
-"""The web-search MCP: load the SearXNG ``search`` tool over streamable HTTP.
+"""The web-search MCP: load the SearXNG web-search tool over streamable HTTP.
 
 Named ``search_mcp`` (not just ``mcp``) so a non-search MCP server (see
 ``wikipedia_mcp``) gets its own module + settings rather than overloading this.
@@ -6,22 +6,36 @@ Named ``search_mcp`` (not just ``mcp``) so a non-search MCP server (see
 
 from __future__ import annotations
 
+import logging
+
 from langchain_core.tools import BaseTool
 
-from app.agent.mcp_client import load_mcp_tools
+from app.agent.mcp_client import index_by_name, load_mcp_tools
 from app.config import Settings
 
+logger = logging.getLogger(__name__)
+
 _SERVER = "searxng"
-_SEARCH_TOOL = "search"
+# The tool's name has drifted across the image's releases — try each. The bare
+# aliases come from index_by_name(strip_prefix=...).
+_SEARCH_TOOLS = ("searxng_web_search", "web_search", "search")
 
 
-async def load_search_tool(settings: Settings) -> BaseTool:
-    """Resolve the ``search`` tool exposed by the configured web-search MCP server."""
-    tools = await load_mcp_tools(settings.agent_search_mcp_url, _SERVER)
-    for tool in tools:
-        if tool.name == _SEARCH_TOOL:
-            return tool
-    raise LookupError(
-        f"MCP server {settings.agent_search_mcp_url!r} exposes no {_SEARCH_TOOL!r} tool "
-        f"(saw: {sorted(t.name for t in tools)})"
+async def load_search_tool(settings: Settings) -> BaseTool | None:
+    """The web-search tool the configured MCP server exposes, or ``None``.
+
+    ``None`` (not an exception): a missing tool disables the ``search`` node for
+    that run rather than crash-looping the worker at ``WORKER_STARTUP``.
+    """
+    tools = index_by_name(
+        await load_mcp_tools(settings.agent_search_mcp_url, _SERVER), strip_prefix=_SERVER
     )
+    for name in _SEARCH_TOOLS:
+        if name in tools:
+            return tools[name]
+    logger.warning(
+        "search MCP %s exposes no web-search tool (saw: %s) — the search step is disabled",
+        settings.agent_search_mcp_url,
+        sorted(tools),
+    )
+    return None

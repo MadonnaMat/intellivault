@@ -59,17 +59,29 @@ def _parse_search_result(raw: Any) -> list[SearchHit]:
     return [hit for item in _as_items(raw) if (hit := _hit_from_item(item)) is not None]
 
 
+# SearXNG's web-search tool defaults to a human-readable text digest; ask for
+# JSON so _parse_search_result can read {title, url, content} objects.
+_SEARCH_ARGS = {"response_format": "json", "result_detail": "compact"}
+
+
 async def search_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     plan = state["plan"]
     skipped = list(state["skipped"])
     if plan is None:
         return {"search_hits": [], "skipped": skipped}
+    if deps.search_tool is None:
+        # No web-search MCP — skip straight past the broaden/retry cycle.
+        return {
+            "search_hits": [],
+            "search_attempts": deps.settings.agent_search_retries,
+            "skipped": [*skipped, "search: web-search MCP unavailable — skipped"],
+        }
 
     seen: set[str] = set()
     hits: list[SearchHit] = []
     limit = deps.settings.agent_max_sources
     for query in plan.queries:
-        raw = await deps.search_tool.ainvoke({"query": query})
+        raw = await deps.search_tool.ainvoke({"query": query, **_SEARCH_ARGS})
         for hit in _parse_search_result(raw):
             if hit.url in seen or len(hits) >= limit:
                 continue

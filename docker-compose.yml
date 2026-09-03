@@ -153,21 +153,26 @@ services:
       retries: 10
       start_period: 15s
 
-  # MCP wrapper over SearXNG (streamable-HTTP). The agent worker loads its
-  # `search` tool from here. NOTE: confirm the image's listen port + endpoint
-  # path (PORT / TRANSPORT) against the pinned tag before a real deploy.
+  # MCP wrapper over SearXNG (streamable-HTTP at /mcp). The agent worker loads
+  # its `search` tool from here. Setting MCP_HTTP_PORT switches the image off its
+  # default stdio transport (which exits immediately with no stdin) onto HTTP.
   search-mcp:
-    image: isokoliuk/mcp-searxng:latest
+    image: isokoliuk/mcp-searxng:2.1.0
     environment:
       SEARXNG_URL: http://searxng:8080
-      TRANSPORT: streamable-http
-      HOST: 0.0.0.0
-      PORT: "8770"
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: "8770"
     ports:
       - "${AGENT_SEARCH_MCP_PORT:-8770}:8770"
     depends_on:
       searxng:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8770/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
   # Wikipedia MCP — authoritative entity summaries + related topics, used by the
   # agent's `lookup` node. Official Docker MCP image, no API key.
@@ -226,7 +231,7 @@ services:
       redis:
         condition: service_healthy
       search-mcp:
-        condition: service_started
+        condition: service_healthy
       wikipedia-mcp:
         condition: service_started
       taskiq-admin:

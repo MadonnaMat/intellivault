@@ -42,6 +42,23 @@ async def test_search_node_no_plan_is_a_noop() -> None:
     assert out["search_hits"] == []
 
 
+async def test_search_node_skips_the_retry_cycle_when_the_mcp_is_unavailable() -> None:
+    deps = fake_deps(driver=FakeNeo4jDriver(), no_search_tool=True)
+    out = await search_node(make_state(plan=Plan(summary="s", queries=["q"])), deps=deps)
+
+    assert out["search_hits"] == []
+    # search_attempts bumped to the retry limit -> _route_after_search goes to fetch
+    assert out["search_attempts"] == deps.settings.agent_search_retries
+    assert out["skipped"][-1] == "search: web-search MCP unavailable — skipped"
+
+
+async def test_search_node_asks_the_tool_for_compact_json() -> None:
+    tool = FakeSearchTool([{"url": "https://a.test/1"}])
+    deps = fake_deps(driver=FakeNeo4jDriver(), search_tool=tool)
+    await search_node(make_state(plan=Plan(summary="s", queries=["q"])), deps=deps)
+    assert tool.args == [{"query": "q", "response_format": "json", "result_detail": "compact"}]
+
+
 @respx.mock
 async def test_fetch_node_tolerates_a_per_url_failure() -> None:
     respx.get("https://ok.test/a").mock(return_value=httpx.Response(200, html="<p>hello</p>"))
