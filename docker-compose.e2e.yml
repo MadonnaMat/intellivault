@@ -29,3 +29,4 @@ services:
     environment:
       OLLAMA_URL: http://mock-ai:4010
       AGENT_SEARCH_MCP_URL: http://mock-ai:4010/mcp
+      AGENT_WIKIPEDIA_MCP_URL: http://mock-ai:4010/mcp

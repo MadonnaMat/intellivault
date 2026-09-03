@@ -55,6 +55,7 @@ def test_agent_defaults() -> None:
     assert settings.agent_max_sources == 5
     assert settings.agent_survey_max_entities == 150
     assert settings.agent_search_mcp_url == "http://localhost:8770/mcp"
+    assert settings.agent_wikipedia_mcp_url == "http://localhost:8771/mcp"
     assert settings.agent_worker_concurrency == 4
 
 

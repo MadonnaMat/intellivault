@@ -79,6 +79,18 @@ class _Embedder:
         return [0.05] * 768
 
 
+class _WikiTool:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    async def ainvoke(self, _args: Any) -> Any:
+        if self.name == "get_summary":
+            return "A canonical description."
+        if self.name == "get_related_topics":
+            return {"related": ["Walter Brattain"]}
+        return {"results": [{"title": "Bell Labs"}]}
+
+
 def _chat_response(request: httpx.Request) -> httpx.Response:
     # The Plan / StructuredResult schema rides in the request body (as `format`
     # or a tool def, depending on the langchain-ollama version) — key off it.
@@ -126,6 +138,10 @@ def _infra(neo4j: AsyncDriver, pool: FakePool) -> WorkerInfra:
         chat_model=build_chat_model(_SETTINGS),
         embedder=cast(Any, _Embedder()),
         search_tool=cast(BaseTool, _SearchTool()),
+        wikipedia_tools={
+            name: cast(BaseTool, _WikiTool(name))
+            for name in ("search_wikipedia", "get_summary", "get_related_topics")
+        },
     )
 
 

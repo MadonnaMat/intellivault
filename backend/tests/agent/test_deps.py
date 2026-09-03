@@ -38,6 +38,7 @@ def _infra(log: list[str]) -> WorkerInfra:
         chat_model=cast(Any, object()),
         embedder=cast(Any, object()),
         search_tool=cast(Any, object()),
+        wikipedia_tools={},
     )
 
 
@@ -56,12 +57,16 @@ async def test_build_worker_infra_opens_every_client(monkeypatch: pytest.MonkeyP
     async def _fake_tool(_s: object) -> str:
         return "tool"
 
+    async def _wiki() -> dict[str, int]:
+        return {"w": 1}
+
     monkeypatch.setattr("app.agent.deps.asyncpg.create_pool", _fake_pool)
     monkeypatch.setattr("app.agent.deps.AsyncGraphDatabase.driver", lambda *_a, **_k: "driver")
     monkeypatch.setattr(deps, "build_http_client", lambda _s: "http")
     monkeypatch.setattr(deps, "build_chat_model", lambda _s: "chat")
     monkeypatch.setattr(deps, "build_embedder", lambda _s: "embed")
     monkeypatch.setattr(deps, "load_search_tool", _fake_tool)
+    monkeypatch.setattr(deps, "load_wikipedia_tools", lambda _s: _wiki())
 
     infra = await deps.build_worker_infra(_SETTINGS)
     got: list[object] = [
@@ -71,8 +76,9 @@ async def test_build_worker_infra_opens_every_client(monkeypatch: pytest.MonkeyP
         infra.chat_model,
         infra.embedder,
         infra.search_tool,
+        infra.wikipedia_tools,
     ]
-    assert got == ["pool", "driver", "http", "chat", "embed", "tool"]
+    assert got == ["pool", "driver", "http", "chat", "embed", "tool", {"w": 1}]
 
 
 def test_from_infra_shares_the_worker_clients() -> None:
@@ -84,3 +90,4 @@ def test_from_infra_shares_the_worker_clients() -> None:
     assert deps.chat_model is infra.chat_model
     assert deps.embedder is infra.embedder
     assert deps.search_tool is infra.search_tool
+    assert deps.wikipedia_tools is infra.wikipedia_tools

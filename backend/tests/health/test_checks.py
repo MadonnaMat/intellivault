@@ -16,6 +16,7 @@ from app.health.checks import HealthProbes, _measure, gather_health
 OLLAMA = "http://ollama.test:11434"
 PHOENIX = "http://phoenix.test:6006"
 MCP = "http://mcp.test:8770/mcp"
+WIKI_MCP = "http://wiki-mcp.test:8771/mcp"
 
 
 class _FakePgPool:
@@ -77,6 +78,7 @@ def _probes(client: httpx.AsyncClient, **overrides: Any) -> HealthProbes:
         OLLAMA_URL=OLLAMA,
         PHOENIX_COLLECTOR_ENDPOINT=PHOENIX,
         AGENT_SEARCH_MCP_URL=MCP,
+        AGENT_WIKIPEDIA_MCP_URL=WIKI_MCP,
     )
     defaults: dict[str, Any] = {
         "settings": settings,
@@ -106,7 +108,9 @@ def _mock_healthy_http(*, phoenix: int = 200, ollama_models: list[str] | None = 
     respx.get(f"{OLLAMA}/api/tags").mock(
         return_value=httpx.Response(200, json={"models": [{"name": m} for m in models]})
     )
-    respx.get(MCP).mock(return_value=httpx.Response(406))  # streamable-http rejects a bare GET
+    # streamable-HTTP endpoints reject a bare GET
+    respx.get(MCP).mock(return_value=httpx.Response(406))
+    respx.get(WIKI_MCP).mock(return_value=httpx.Response(406))
 
 
 @respx.mock
@@ -150,12 +154,13 @@ async def test_phoenix_down_and_neo4j_error() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_search_mcp_reachable_on_any_non_5xx() -> None:
+async def test_mcp_probes_reachable_on_any_non_5xx() -> None:
     _mock_healthy_http()
     async with httpx.AsyncClient() as client:
         statuses = {s.name: s for s in await gather_health(_probes(client))}
-    assert statuses["search-mcp"].ok is True
-    assert statuses["search-mcp"].critical is False
+    for name in ("search-mcp", "wikipedia-mcp"):
+        assert statuses[name].ok is True
+        assert statuses[name].critical is False
 
 
 @respx.mock

@@ -91,16 +91,34 @@ class FakeEmbedder:
         return self._vector
 
 
-class FakeSearchTool:
+class FakeTool:
+    """A single MCP tool — records its calls, replays a scripted result."""
+
+    def __init__(self, name: str, result: Any = None) -> None:
+        self.name = name
+        self._result = result
+        self.calls: list[Any] = []
+
+    async def ainvoke(self, args: Any) -> Any:
+        self.calls.append(args)
+        return self._result
+
+
+class FakeSearchTool(FakeTool):
     name = "search"
 
     def __init__(self, results: Any) -> None:
-        self._results = results
-        self.queries: list[str] = []
+        super().__init__("search", results)
+        self.queries = self.calls  # back-compat alias
 
     async def ainvoke(self, args: dict[str, Any]) -> Any:
-        self.queries.append(args["query"])
-        return self._results
+        return await super().ainvoke(args["query"])
+
+
+def fake_wikipedia_tools(**results: Any) -> dict[str, FakeTool]:
+    """Named FakeTools for the wikipedia_mcp.WANTED set (override results by name)."""
+    defaults = {"search_wikipedia": [], "get_summary": "", "get_related_topics": []}
+    return {name: FakeTool(name, results.get(name, default)) for name, default in defaults.items()}
 
 
 def fake_deps(
@@ -110,6 +128,7 @@ def fake_deps(
     chat_model: FakeChatModel | None = None,
     embedder: FakeEmbedder | None = None,
     search_tool: FakeSearchTool | None = None,
+    wikipedia_tools: dict[str, FakeTool] | None = None,
     http_client: httpx.AsyncClient | None = None,
     settings: Settings | None = None,
 ) -> AgentDeps:
@@ -121,6 +140,9 @@ def fake_deps(
         chat_model=cast(BaseChatModel, chat_model or FakeChatModel()),
         embedder=cast(Embeddings, embedder or FakeEmbedder(error=RuntimeError("no embedder"))),
         search_tool=cast(BaseTool, search_tool or FakeSearchTool([])),
+        wikipedia_tools=cast(
+            "dict[str, BaseTool]", wikipedia_tools or fake_wikipedia_tools()
+        ),
     )
 
 
@@ -177,6 +199,7 @@ def fake_infra(
         chat_model=cast(BaseChatModel, chat_model or FakeChatModel()),
         embedder=cast(Embeddings, embedder or FakeEmbedder(error=RuntimeError("no embedder"))),
         search_tool=cast(BaseTool, search_tool or FakeSearchTool([])),
+        wikipedia_tools=cast("dict[str, BaseTool]", fake_wikipedia_tools()),
     )
 
 
@@ -270,6 +293,8 @@ __all__ = [
     "FakeEmbedder",
     "FakePool",
     "FakeSearchTool",
+    "FakeTool",
+    "fake_wikipedia_tools",
     "OWNER",
     "Row",
     "as_pool",

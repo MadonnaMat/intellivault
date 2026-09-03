@@ -21,6 +21,7 @@ from app.agent.embeddings import build_embedder
 from app.agent.fetch import build_http_client
 from app.agent.llm import build_chat_model
 from app.agent.search_mcp import load_search_tool
+from app.agent.wikipedia_mcp import load_wikipedia_tools
 from app.config import Settings
 
 
@@ -35,6 +36,7 @@ class WorkerInfra:
     chat_model: BaseChatModel
     embedder: Embeddings
     search_tool: BaseTool
+    wikipedia_tools: dict[str, BaseTool]
 
     async def aclose(self) -> None:
         await self.http_client.aclose()
@@ -58,6 +60,7 @@ async def build_worker_infra(settings: Settings) -> WorkerInfra:
         chat_model=build_chat_model(settings),
         embedder=build_embedder(settings),
         search_tool=await load_search_tool(settings),
+        wikipedia_tools=await load_wikipedia_tools(settings),
     )
 
 
@@ -72,6 +75,7 @@ class AgentDeps:
     chat_model: BaseChatModel
     embedder: Embeddings
     search_tool: BaseTool
+    wikipedia_tools: dict[str, BaseTool]
 
     @classmethod
     def from_infra(cls, infra: WorkerInfra) -> AgentDeps:
@@ -83,4 +87,5 @@ class AgentDeps:
             chat_model=infra.chat_model,
             embedder=infra.embedder,
             search_tool=infra.search_tool,
+            wikipedia_tools=infra.wikipedia_tools,
         )

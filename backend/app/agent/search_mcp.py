@@ -1,31 +1,23 @@
 """The web-search MCP: load the SearXNG ``search`` tool over streamable HTTP.
 
-Named ``search_mcp`` (not just ``mcp``) so a future non-search MCP server gets
-its own module + settings rather than overloading this one.
-``langchain-mcp-adapters`` opens a fresh session per tool call, so the resolved
-tool object is safe to build once per worker and share across concurrent runs.
+Named ``search_mcp`` (not just ``mcp``) so a non-search MCP server (see
+``wikipedia_mcp``) gets its own module + settings rather than overloading this.
 """
 
 from __future__ import annotations
 
 from langchain_core.tools import BaseTool
-from langchain_mcp_adapters.client import MultiServerMCPClient
 
+from app.agent.mcp_client import load_mcp_tools
 from app.config import Settings
 
 _SERVER = "searxng"
 _SEARCH_TOOL = "search"
 
 
-def build_search_client(settings: Settings) -> MultiServerMCPClient:
-    return MultiServerMCPClient(
-        {_SERVER: {"url": settings.agent_search_mcp_url, "transport": "streamable_http"}}
-    )
-
-
 async def load_search_tool(settings: Settings) -> BaseTool:
     """Resolve the ``search`` tool exposed by the configured web-search MCP server."""
-    tools = await build_search_client(settings).get_tools(server_name=_SERVER)
+    tools = await load_mcp_tools(settings.agent_search_mcp_url, _SERVER)
     for tool in tools:
         if tool.name == _SEARCH_TOOL:
             return tool

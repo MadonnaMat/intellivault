@@ -108,15 +108,22 @@ async def _check_ollama(probes: HealthProbes) -> ProbeResult:
     return "embed + chat models present", False
 
 
-async def _check_search_mcp(probes: HealthProbes) -> ProbeResult:
-    # The SearXNG web-search MCP server the agent worker dials. Non-critical to
-    # the gateway (only the worker needs it). A streamable-HTTP endpoint may
-    # legitimately answer a bare GET with a 4xx, so anything < 500 is "reachable".
-    url = probes.settings.agent_search_mcp_url
+async def _check_mcp(probes: HealthProbes, url: str) -> ProbeResult:
+    # An MCP server the agent worker dials. Non-critical to the gateway (only the
+    # worker needs it). A streamable-HTTP endpoint may legitimately answer a bare
+    # GET with a 4xx, so anything < 500 is "reachable".
     response = await probes.http_client.get(url)
     if response.status_code >= 500:
         response.raise_for_status()
     return f"GET {url} -> {response.status_code}", False
+
+
+async def _check_search_mcp(probes: HealthProbes) -> ProbeResult:
+    return await _check_mcp(probes, probes.settings.agent_search_mcp_url)
+
+
+async def _check_wikipedia_mcp(probes: HealthProbes) -> ProbeResult:
+    return await _check_mcp(probes, probes.settings.agent_wikipedia_mcp_url)
 
 
 async def _check_redis(probes: HealthProbes) -> ProbeResult:
@@ -155,6 +162,7 @@ async def gather_health(probes: HealthProbes) -> list[ServiceStatus]:
         ("ollama", lambda: _check_ollama(probes), True),
         ("redis", lambda: _check_redis(probes), False),
         ("search-mcp", lambda: _check_search_mcp(probes), False),
+        ("wikipedia-mcp", lambda: _check_wikipedia_mcp(probes), False),
     ]
     tasks = {
         asyncio.ensure_future(_measure(name, probe, critical=critical)): (name, critical)

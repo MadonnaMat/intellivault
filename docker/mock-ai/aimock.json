@@ -18,6 +18,24 @@
           "required": ["query"]
         },
         "result": "[{\"url\": \"https://sources.mock.test/transistor\", \"title\": \"The invention of the transistor\", \"content\": \"Bell Labs, 1947 — Bardeen, Brattain, Shockley.\"}]"
+      },
+      {
+        "name": "search_wikipedia",
+        "description": "Search Wikipedia",
+        "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } } },
+        "result": "{\"results\": [{\"title\": \"Bell Labs\"}]}"
+      },
+      {
+        "name": "get_summary",
+        "description": "Wikipedia article summary",
+        "inputSchema": { "type": "object", "properties": { "title": { "type": "string" } } },
+        "result": "Bell Labs is an industrial research laboratory where the transistor was invented in 1947."
+      },
+      {
+        "name": "get_related_topics",
+        "description": "Topics related to a Wikipedia article",
+        "inputSchema": { "type": "object", "properties": { "title": { "type": "string" } } },
+        "result": "{\"related\": [\"William Shockley\", \"John Bardeen\", \"Walter Brattain\"]}"
       }
     ]
   }
