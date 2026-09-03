@@ -44,11 +44,23 @@ def test_webauthn_overrides_from_env() -> None:
 
 
 def test_agent_defaults() -> None:
-    assert _make().redis_url == "redis://localhost:6379/0"
+    settings = _make()
+    assert settings.redis_url == "redis://localhost:6379/0"
+    assert settings.agent_fetch_timeout == 10.0
+    assert settings.agent_fetch_max_redirects == 3
+    assert settings.agent_fetch_max_bytes == 2_000_000
+    assert settings.agent_source_char_limit == 12_000
 
 
 def test_agent_overrides_from_env() -> None:
-    assert _make(REDIS_URL="redis://redis:6379/1").redis_url == "redis://redis:6379/1"
+    settings = _make(
+        REDIS_URL="redis://redis:6379/1",
+        AGENT_FETCH_MAX_BYTES="4096",
+        AGENT_SOURCE_CHAR_LIMIT="500",
+    )
+    assert settings.redis_url == "redis://redis:6379/1"
+    assert settings.agent_fetch_max_bytes == 4096
+    assert settings.agent_source_char_limit == 500
 
 
 def test_db_pool_bounds() -> None:

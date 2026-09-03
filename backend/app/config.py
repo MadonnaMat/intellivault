@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # process — see app/agent/). "memory://" swaps in taskiq's InMemoryBroker
     # for tests / offline dev. ---
     redis_url: str = "redis://localhost:6379/0"
+    # Source fetching (agent/fetch.py). Every URL + redirect hop is resolved and
+    # checked against private/loopback/link-local address space before connecting.
+    agent_fetch_timeout: float = 10.0
+    agent_fetch_max_redirects: int = 3
+    agent_fetch_max_bytes: int = 2_000_000
+    agent_source_char_limit: int = 12_000
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps
