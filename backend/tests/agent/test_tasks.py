@@ -136,6 +136,23 @@ async def test_commit_agent_run_commits_the_parked_drafts_and_keeps_the_analysis
     assert "fetch: dead-link" in final["skipped"]  # research-phase notes kept
 
 
+async def test_commit_agent_run_marks_failed_and_reraises_when_commit_blows_up() -> None:
+    drafts = {
+        "entities": [{"temp_id": "e1", "name": "X", "kind": "org"}],
+        "relationships": [],
+    }
+    parked = {"pending": json.dumps(drafts), "result": None}
+    pool = FakePool(fetchrow=[_meta_row(), parked])
+    # no create_entity result rows -> commit_node's service call raises IndexError
+    infra = fake_infra(driver=FakeNeo4jDriver(), pool=pool, settings=_REVIEW_SETTINGS)
+
+    with pytest.raises(IndexError):
+        await _commit_agent_run(str(_RUN), infra)
+
+    _q, fail_args = find_call(pool, "status = 'failed'")
+    assert fail_args[0] == _RUN
+
+
 async def test_run_agent_marks_failed_and_reraises_on_a_node_error() -> None:
     pool = FakePool(fetchrow=_meta_row())
     # a Plan payload that never validates -> structured() raises inside plan_node
