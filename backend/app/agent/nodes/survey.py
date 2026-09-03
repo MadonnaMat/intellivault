@@ -47,16 +47,31 @@ async def _vector_survey(state: AgentState, deps: AgentDeps, limit: int) -> list
 
 async def survey_graph_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     limit = deps.settings.agent_survey_max_entities
-    view = await graph_service.list_graph(deps.driver, state["owner_id"])
+    owner_id = state["owner_id"]
+    skipped = list(state["skipped"])
+
     hits = await _vector_survey(state, deps, limit)
-    kept = hits or _rank_entities(view.entities, _relevance_tokens(state), limit)
+    if hits:
+        # The vector index already bounded the read — just fetch the edges among
+        # the hits, not the whole visible graph.
+        kept = hits
+        rels = await graph_service.list_visible_relationships_among(
+            deps.driver, owner_id, [str(e.id) for e in kept]
+        )
+        if len(kept) >= limit:
+            skipped.append(f"survey: {limit} nearest entities (there may be more)")
+    else:
+        # No embeddings / Ollama down — fall back to lexical ranking over the graph.
+        view = await graph_service.list_graph(deps.driver, owner_id)
+        kept = _rank_entities(view.entities, _relevance_tokens(state), limit)
+        rels = view.relationships
+        if len(view.entities) > len(kept):
+            skipped.append(f"survey: showing {len(kept)} of {len(view.entities)} visible entities")
+
     kept_ids = {e.id for e in kept}
-    edges = [r for r in view.relationships if r.from_id in kept_ids and r.to_id in kept_ids]
+    edges = [r for r in rels if r.from_id in kept_ids and r.to_id in kept_ids]
     digest = GraphDigest(
         entities=[DigestEntity(id=e.id, name=e.name, kind=e.kind) for e in kept],
         relationships=[DigestEdge(from_id=r.from_id, to_id=r.to_id, kind=r.kind) for r in edges],
     )
-    skipped = list(state["skipped"])
-    if len(view.entities) > len(kept):
-        skipped.append(f"survey: showing {len(kept)} of {len(view.entities)} visible entities")
     return {"existing_graph": digest, "skipped": skipped}

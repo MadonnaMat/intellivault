@@ -182,6 +182,22 @@ async def search_entities_by_vector(
     return [_entity(row["e"]) for row in rows]
 
 
+async def list_visible_relationships_among(
+    driver: AsyncDriver, owner_id: str, entity_ids: list[str]
+) -> list[Relationship]:
+    """Visible edges whose *both* endpoints are in ``entity_ids`` — the bounded
+    read the agent survey uses instead of the whole graph."""
+    if not entity_ids:
+        return []
+    rows = await _run(
+        driver,
+        cypher("list_visible_relationships_among"),
+        owner_id=owner_id,
+        ids=entity_ids,
+    )
+    return [_relationship(row) for row in rows]
+
+
 async def list_graph(driver: AsyncDriver, owner_id: str) -> GraphView:
     # The two reads are independent (separate sessions) — run them concurrently.
     entity_rows, relationship_rows = await asyncio.gather(

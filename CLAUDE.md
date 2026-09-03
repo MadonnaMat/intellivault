@@ -93,7 +93,9 @@ Project-level instructions for Claude Code working in this repository.
   `:Entity(embedding)` (768-d cosine, sized for `nomic-embed-text`);
   `service.set_entity_embedding` (owner-scoped) and `service.search_entities_by_vector`
   (`db.index.vector.queryNodes` + the same visibility predicate) back the agent's
-  survey step. `test_cypher_predicate.py` also scans `queryNodes` files and treats
+  survey step; `service.list_visible_relationships_among` fetches just the edges
+  between an id set (the vector survey's bounded alternative to `list_graph`).
+  `test_cypher_predicate.py` also scans `queryNodes` files and treats
   `search_*` as a tenant-visible read.
 - **Agent** (`app/agent/`) is the research loop: `POST /agent/runs` inserts a
   durable `agent_runs` row (Postgres) and enqueues a Redis job; a **separate

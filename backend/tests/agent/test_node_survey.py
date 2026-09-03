@@ -44,9 +44,10 @@ async def test_caps_and_ranks_by_topic_relevance() -> None:
     assert out["skipped"] == ["survey: showing 1 of 3 visible entities"]
 
 
-async def test_prefers_vector_search_hits() -> None:
-    a, b = node_row("Alpha Corp"), node_row("Beta Inst")
-    driver = FakeNeo4jDriver([a, b], [], [{**b, "score": 0.9}])
+async def test_prefers_vector_search_hits_without_reading_the_whole_graph() -> None:
+    b = node_row("Beta Inst")
+    # call order: vector search, then the bounded edges-among query
+    driver = FakeNeo4jDriver([{**b, "score": 0.9}], [])
     embedder = FakeEmbedder(vector=[0.5, 0.5])
 
     out = await survey_graph_node(
@@ -55,7 +56,22 @@ async def test_prefers_vector_search_hits() -> None:
     )
     assert [e.name for e in out["existing_graph"].entities] == ["Beta Inst"]
     assert embedder.calls
-    assert out["skipped"] == ["survey: showing 1 of 2 visible entities"]
+    assert out["skipped"] == []  # under the cap, nothing truncated
+    # only the vector search + the bounded edges-among read — no full-graph scan
+    queries = [q for q, _ in driver.calls]
+    assert len(queries) == 2
+    assert "queryNodes" in queries[0]
+    assert "RELATED_TO" in queries[1] and "$ids" in queries[1]
+
+
+async def test_vector_path_notes_when_it_hits_the_cap() -> None:
+    # _CAP1 caps the survey at 1 entity; the vector search returns exactly that
+    driver = FakeNeo4jDriver([{**node_row("Alpha"), "score": 0.9}], [])
+    out = await survey_graph_node(
+        make_state(plan=Plan(summary="s", queries=["x"])),
+        deps=fake_deps(driver=driver, embedder=FakeEmbedder(vector=[0.5]), settings=_CAP1),
+    )
+    assert out["skipped"] == ["survey: 1 nearest entities (there may be more)"]
 
 
 async def test_falls_back_when_vector_search_is_empty() -> None:

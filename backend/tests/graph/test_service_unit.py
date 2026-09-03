@@ -98,6 +98,23 @@ async def test_list_graph_passes_owner_and_maps_entities_and_edges() -> None:
     assert driver.calls[1][1] == {"owner_id": _OWNER}
 
 
+async def test_list_visible_relationships_among_passes_ids_and_owner() -> None:
+    driver = FakeNeo4jDriver([{"r": _REL, "from_id": _FROM, "to_id": _TO}])
+    ids = [str(_FROM), str(_TO)]
+
+    rels = await service.list_visible_relationships_among(cast(AsyncDriver, driver), _OWNER, ids)
+
+    assert [r.kind for r in rels] == ["employs"]
+    assert driver.calls[0][1] == {"owner_id": _OWNER, "ids": ids}
+
+
+async def test_list_visible_relationships_among_short_circuits_on_no_ids() -> None:
+    driver = FakeNeo4jDriver([])
+    rels = await service.list_visible_relationships_among(cast(AsyncDriver, driver), _OWNER, [])
+    assert rels == []
+    assert driver.calls == []
+
+
 async def test_create_relationship_serialises_and_maps() -> None:
     driver = FakeNeo4jDriver([{"r": _REL, "from_id": _FROM, "to_id": _TO}])
 
