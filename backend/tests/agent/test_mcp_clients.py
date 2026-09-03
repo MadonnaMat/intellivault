@@ -40,9 +40,20 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tools: list[Any]) -> None:
 
 def test_index_by_name_keeps_both_the_bare_and_prefixed_aliases() -> None:
     tools = cast("list[BaseTool]", [FakeTool("wikipedia_get_summary"), FakeTool("get_summary")])
-    idx = index_by_name(tools)
+    idx = index_by_name(tools, strip_prefix="wikipedia")
     assert set(idx) == {"get_summary", "wikipedia_get_summary"}
-    assert idx["get_summary"].name == "get_summary"
+    assert idx["get_summary"].name == "get_summary"  # the real bare tool wins
+
+
+def test_index_by_name_aliases_a_prefixed_only_tool_to_its_bare_name() -> None:
+    tools = cast("list[BaseTool]", [FakeTool("wikipedia_get_summary")])
+    idx = index_by_name(tools, strip_prefix="wikipedia")
+    assert idx["get_summary"].name == "wikipedia_get_summary"
+
+
+def test_index_by_name_leaves_names_alone_without_a_prefix() -> None:
+    tools = cast("list[BaseTool]", [FakeTool("wikipedia_get_summary")])
+    assert set(index_by_name(tools)) == {"wikipedia_get_summary"}
 
 
 async def test_load_mcp_tools_builds_a_streamable_http_connection(
@@ -75,7 +86,11 @@ async def test_load_wikipedia_tools_returns_the_wanted_set(monkeypatch: pytest.M
     assert set(tools) == set(wikipedia_mcp.WANTED)
 
 
-async def test_load_wikipedia_tools_raises_when_incomplete(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_load_wikipedia_tools_degrades_when_incomplete(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     _patch(monkeypatch, [SimpleNamespace(name="search_wikipedia")])
-    with pytest.raises(LookupError, match="get_summary"):
-        await wikipedia_mcp.load_wikipedia_tools(_SETTINGS)
+    with caplog.at_level("WARNING"):
+        tools = await wikipedia_mcp.load_wikipedia_tools(_SETTINGS)
+    assert set(tools) == {"search_wikipedia"}  # the subset it found, no raise
+    assert "lookup step is disabled" in caplog.text

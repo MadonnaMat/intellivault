@@ -14,6 +14,7 @@ from app.agent.deps import AgentDeps
 from app.agent.graph_state import AgentState
 from app.agent.nodes._common import coerce_mcp
 from app.agent.schemas import DraftEntity, DraftRelationship, StructuredResult
+from app.agent.wikipedia_mcp import WANTED as _WIKI_TOOLS
 
 _SUMMARY_LIMIT = 600
 
@@ -80,6 +81,8 @@ async def lookup_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     result = state["structured"] or StructuredResult()
     if not result.entities:
         return {}
+    if any(name not in deps.wikipedia_tools for name in _WIKI_TOOLS):
+        return {"skipped": [*state["skipped"], "lookup: Wikipedia MCP unavailable — skipped"]}
     by_name = {e.name.lower(): e.temp_id for e in result.entities}
     skipped = list(state["skipped"])
 

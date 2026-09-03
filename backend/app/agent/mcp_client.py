@@ -16,10 +16,13 @@ async def load_mcp_tools(url: str, server_name: str) -> list[BaseTool]:
     return await client.get_tools(server_name=server_name)
 
 
-def index_by_name(tools: list[BaseTool]) -> dict[str, BaseTool]:
-    """Tools keyed by name, preferring the un-prefixed alias when a server
-    exposes both ``get_summary`` and ``wikipedia_get_summary``."""
-    by_name: dict[str, BaseTool] = {}
-    for tool in sorted(tools, key=lambda t: len(t.name), reverse=True):
-        by_name[tool.name] = tool
+def index_by_name(tools: list[BaseTool], *, strip_prefix: str | None = None) -> dict[str, BaseTool]:
+    """Tools keyed by name. With ``strip_prefix``, a ``"{prefix}_<name>"`` tool is
+    *also* reachable under the bare ``<name>`` (a real bare tool always wins)."""
+    by_name: dict[str, BaseTool] = {tool.name: tool for tool in tools}
+    if strip_prefix:
+        pfx = f"{strip_prefix}_"
+        for tool in tools:
+            if tool.name.startswith(pfx):
+                by_name.setdefault(tool.name.removeprefix(pfx), tool)
     return by_name

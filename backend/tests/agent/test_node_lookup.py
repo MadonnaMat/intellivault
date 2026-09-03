@@ -35,6 +35,14 @@ async def test_lookup_adds_summaries_and_cross_links() -> None:
     }
 
 
+async def test_lookup_no_ops_once_when_the_wikipedia_mcp_is_unavailable() -> None:
+    deps = fake_deps(driver=FakeNeo4jDriver(), wikipedia_tools={})  # nothing resolved
+    out = await lookup_node(make_state(structured=_DRAFT), deps=deps)
+
+    assert "structured" not in out  # drafts untouched
+    assert out["skipped"][-1] == "lookup: Wikipedia MCP unavailable — skipped"
+
+
 async def test_lookup_is_best_effort_per_entity() -> None:
     class _Boom(FakeTool):
         async def ainvoke(self, _args: object) -> object:
