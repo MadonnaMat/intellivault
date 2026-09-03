@@ -20,7 +20,7 @@ from neo4j import AsyncDriver, AsyncGraphDatabase
 from app.agent.embeddings import build_embedder
 from app.agent.fetch import build_http_client
 from app.agent.llm import build_chat_model
-from app.agent.mcp import load_search_tool
+from app.agent.search_mcp import load_search_tool
 from app.config import Settings
 
 

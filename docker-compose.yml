@@ -116,7 +116,7 @@ services:
       OLLAMA_URL: http://host.docker.internal:11434
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
-      AGENT_SEARCH_MCP_URL: http://mcp-searxng:8770/mcp
+      AGENT_SEARCH_MCP_URL: http://search-mcp:8770/mcp
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-IntelliVault}
@@ -153,7 +153,7 @@ services:
   # MCP wrapper over SearXNG (streamable-HTTP). The agent worker loads its
   # `search` tool from here. NOTE: confirm the image's listen port + endpoint
   # path (PORT / TRANSPORT) against the pinned tag before a real deploy.
-  mcp-searxng:
+  search-mcp:
     image: isokoliuk/mcp-searxng:latest
     environment:
       SEARXNG_URL: http://searxng:8080
@@ -161,7 +161,7 @@ services:
       HOST: 0.0.0.0
       PORT: "8770"
     ports:
-      - "${AGENT_MCP_PORT:-8770}:8770"
+      - "${AGENT_SEARCH_MCP_PORT:-8770}:8770"
     depends_on:
       searxng:
         condition: service_healthy
@@ -170,7 +170,7 @@ services:
   # `taskiq worker` pulls jobs off the Redis queue and runs the LangGraph.
   agent-worker:
     build: ./backend
-    restart: unless-stopped  # its startup dials mcp-searxng; retry until it's ready
+    restart: unless-stopped  # its startup dials search-mcp; retry until it's ready
     command:
       - taskiq
       - worker
@@ -187,7 +187,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      mcp-searxng:
+      search-mcp:
         condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -200,7 +200,7 @@ services:
       OLLAMA_URL: http://host.docker.internal:11434
       OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen3:8b}
-      AGENT_SEARCH_MCP_URL: http://mcp-searxng:8770/mcp
+      AGENT_SEARCH_MCP_URL: http://search-mcp:8770/mcp
       AGENT_WORKER_CONCURRENCY: ${AGENT_WORKER_CONCURRENCY:-4}
 
   frontend:

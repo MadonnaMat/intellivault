@@ -63,8 +63,9 @@ class Settings(BaseSettings):
     agent_fetch_max_redirects: int = 3
     agent_fetch_max_bytes: int = 2_000_000
     agent_source_char_limit: int = 12_000
-    # The SearXNG web-search MCP server (streamable-HTTP). Native dev points at a
-    # locally-run mcp-searxng; compose overrides this to the in-network service.
+    # The web-search MCP server (SearXNG, streamable-HTTP). Named *_search_* so a
+    # future non-search MCP server gets its own setting rather than reusing this.
+    # Native dev points at a locally-run search-mcp; compose overrides it.
     agent_search_mcp_url: str = "http://localhost:8770/mcp"
     # Passed to ChatOllama — 0.0 keeps structure/plan extraction deterministic.
     agent_llm_temperature: float = 0.0

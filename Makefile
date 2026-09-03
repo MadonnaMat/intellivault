@@ -69,8 +69,8 @@ graph-migrate-status:
 	cd backend && PYTHONPATH=. $(UV) run python scripts/graph_migrate.py status
 
 # --- Agent loop worker (native dev; compose runs its own `agent-worker`) ---
-# Needs Redis + the SearXNG MCP server reachable (docker compose up -d redis
-# searxng mcp-searxng) and host Ollama with the chat + embed models.
+# Needs Redis + the web-search MCP server reachable (docker compose up -d redis
+# searxng search-mcp) and host Ollama with the chat + embed models.
 agent-worker:
 	cd backend && PYTHONPATH=. $(UV) run taskiq worker app.agent.broker:broker app.agent.tasks --reload
 

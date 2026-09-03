@@ -1,5 +1,7 @@
-"""Load the SearXNG web-search tool from the MCP server (streamable HTTP).
+"""The web-search MCP: load the SearXNG ``search`` tool over streamable HTTP.
 
+Named ``search_mcp`` (not just ``mcp``) so a future non-search MCP server gets
+its own module + settings rather than overloading this one.
 ``langchain-mcp-adapters`` opens a fresh session per tool call, so the resolved
 tool object is safe to build once per worker and share across concurrent runs.
 """
@@ -15,15 +17,15 @@ _SERVER = "searxng"
 _SEARCH_TOOL = "search"
 
 
-def build_client(settings: Settings) -> MultiServerMCPClient:
+def build_search_client(settings: Settings) -> MultiServerMCPClient:
     return MultiServerMCPClient(
         {_SERVER: {"url": settings.agent_search_mcp_url, "transport": "streamable_http"}}
     )
 
 
 async def load_search_tool(settings: Settings) -> BaseTool:
-    """Resolve the ``search`` tool exposed by the configured MCP server."""
-    tools = await build_client(settings).get_tools(server_name=_SERVER)
+    """Resolve the ``search`` tool exposed by the configured web-search MCP server."""
+    tools = await build_search_client(settings).get_tools(server_name=_SERVER)
     for tool in tools:
         if tool.name == _SEARCH_TOOL:
             return tool
