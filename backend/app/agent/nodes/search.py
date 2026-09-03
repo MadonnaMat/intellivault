@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.agent.deps import AgentDeps
 from app.agent.fetch import FetchedDoc, SsrfError, fetch_text, guard_url
 from app.agent.graph_state import AgentState
-from app.agent.llm import structured
+from app.agent.llm import StructuredOutputError, structured
 from app.agent.prompts import prompt
 from app.agent.schemas import Plan, SearchHit
 
@@ -86,16 +86,25 @@ async def search_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
 async def broaden_queries_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     """A search round found nothing — ask for broader queries and try again."""
     tried = state["plan"].queries if state["plan"] is not None else []
-    revised = await structured(
-        deps.chat_model,
-        Plan,
-        [
-            SystemMessage(content=prompt("broaden_system")),
-            HumanMessage(
-                content=f"Topic: {state['topic']}\n\nQueries that failed:\n" + "\n".join(tried)
-            ),
-        ],
-    )
+    attempt = state["search_attempts"] + 1
+    try:
+        revised = await structured(
+            deps.chat_model,
+            Plan,
+            [
+                SystemMessage(content=prompt("broaden_system")),
+                HumanMessage(
+                    content=f"Topic: {state['topic']}\n\nQueries that failed:\n" + "\n".join(tried)
+                ),
+            ],
+        )
+    except StructuredOutputError as exc:
+        # Can't broaden — bump the attempt count so the search loop still
+        # terminates, and fall through with the queries we have.
+        return {
+            "search_attempts": attempt,
+            "skipped": [*state["skipped"], f"search: round {attempt} — could not broaden ({exc})"],
+        }
     plan = (
         revised
         if state["plan"] is None
@@ -103,11 +112,8 @@ async def broaden_queries_node(state: AgentState, *, deps: AgentDeps) -> dict[st
     )
     return {
         "plan": plan,
-        "search_attempts": state["search_attempts"] + 1,
-        "skipped": [
-            *state["skipped"],
-            f"search: round {state['search_attempts'] + 1} — broadened queries",
-        ],
+        "search_attempts": attempt,
+        "skipped": [*state["skipped"], f"search: round {attempt} — broadened queries"],
     }
 
 

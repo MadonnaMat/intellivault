@@ -17,6 +17,20 @@
       "response": {
         "content": "{\"entities\": [{\"temp_id\": \"e1\", \"name\": \"Bell Labs\", \"kind\": \"organization\"}, {\"temp_id\": \"e2\", \"name\": \"William Shockley\", \"kind\": \"person\"}, {\"temp_id\": \"e3\", \"name\": \"John Bardeen\", \"kind\": \"person\"}], \"relationships\": [{\"from_ref\": \"e2\", \"to_ref\": \"e1\", \"kind\": \"worked_at\"}, {\"from_ref\": \"e3\", \"to_ref\": \"e1\", \"kind\": \"worked_at\"}]}"
       }
+    },
+    {
+      "match": { "systemMessage": "different, broader" },
+      "response": {
+        "content": "{\"summary\": \"Broader sweep of the transistor's origins.\", \"queries\": [\"transistor history\", \"who invented the transistor\"]}"
+      }
+    },
+    {
+      "match": { "systemMessage": "fact-checker for a knowledge graph" },
+      "response": { "content": "{\"verdict\": \"ok\", \"notes\": \"\"}" }
+    },
+    {
+      "match": { "systemMessage": "which existing entities the new one should be" },
+      "response": { "content": "{\"links\": []}" }
     }
   ]
 }

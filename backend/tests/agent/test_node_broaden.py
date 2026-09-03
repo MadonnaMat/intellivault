@@ -20,3 +20,16 @@ async def test_broaden_replaces_queries_and_bumps_the_counter() -> None:
     assert out["plan"].summary == "keep"  # only the queries change
     assert out["search_attempts"] == 1
     assert any("broadened queries" in n for n in out["skipped"])
+
+
+async def test_broaden_bumps_the_counter_even_when_the_llm_output_is_unusable() -> None:
+    # A bad payload -> StructuredOutputError; the loop must still terminate.
+    chat = FakeChatModel(structured={"Plan": [{"nope": 1}]})
+    deps = fake_deps(driver=FakeNeo4jDriver(), chat_model=chat)
+    state = make_state(plan=Plan(summary="keep", queries=["narrow"]), search_attempts=0)
+
+    out = await broaden_queries_node(state, deps=deps)
+
+    assert "plan" not in out  # queries left untouched
+    assert out["search_attempts"] == 1
+    assert any("could not broaden" in n for n in out["skipped"])
