@@ -16,8 +16,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 
+from app.agent import fetch as fetch_mod
 from app.agent.deps import AgentDeps, WorkerInfra
+from app.agent.graph_state import initial_state
 from app.config import Settings
+
+OWNER = str(uuid4())
 
 Row = dict[str, Any]
 
@@ -181,6 +185,57 @@ def as_pool(pool: FakePool) -> asyncpg.Pool:
     return cast(asyncpg.Pool, pool)
 
 
+# --- node-test helpers -----------------------------------------------------
+
+
+@pytest.fixture
+def no_real_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """fetch._resolve without touching real DNS: private.test -> RFC1918, else public."""
+
+    async def _resolve(host: str, _port: int) -> list[str]:
+        return ["10.0.0.1"] if host == "private.test" else ["93.184.216.34"]
+
+    monkeypatch.setattr(fetch_mod, "_resolve", _resolve)
+
+
+def make_state(**over: Any) -> Any:
+    base = initial_state("history of the transistor", OWNER, str(uuid4()))
+    base.update(over)  # type: ignore[typeddict-item]
+    return base
+
+
+def node_row(name: str, kind: str = "org") -> dict[str, Any]:
+    now = datetime(2026, 9, 3, tzinfo=UTC)
+    return {
+        "e": {
+            "id": str(uuid4()),
+            "owner_id": OWNER,
+            "visibility": "private",
+            "name": name,
+            "kind": kind,
+            "attributes": "{}",
+            "created_at": now,
+            "updated_at": now,
+        }
+    }
+
+
+def edge_row(kind: str = "employs") -> dict[str, Any]:
+    now = datetime(2026, 9, 3, tzinfo=UTC)
+    return {
+        "r": {
+            "id": str(uuid4()),
+            "owner_id": OWNER,
+            "kind": kind,
+            "visibility": "private",
+            "created_at": now,
+            "updated_at": now,
+        },
+        "from_id": str(uuid4()),
+        "to_id": str(uuid4()),
+    }
+
+
 def make_run_row(**overrides: Any) -> Row:
     """A full agent_runs row as _run() expects it."""
     now = datetime(2026, 9, 3, tzinfo=UTC)
@@ -215,11 +270,15 @@ __all__ = [
     "FakeEmbedder",
     "FakePool",
     "FakeSearchTool",
+    "OWNER",
     "Row",
     "as_pool",
+    "edge_row",
     "fake_deps",
     "fake_infra",
     "find_call",
     "make_run_row",
+    "make_state",
+    "node_row",
     "uuid4",
 ]
