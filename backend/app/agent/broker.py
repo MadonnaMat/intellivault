@@ -26,10 +26,22 @@ _MEMORY = "memory://"
 
 
 def build_broker(settings: Settings) -> AsyncBroker:
-    """A Redis-backed queue, or the in-process broker when ``redis_url`` is memory://."""
+    """A Redis-backed queue, or the in-process broker when ``redis_url`` is memory://.
+
+    ``socket_timeout=None`` is load-bearing: redis-py 8.1 changed the default
+    read timeout from "none" to 5s, but the worker's ``listen()`` issues a
+    ``BRPOP key 0`` that blocks server-side until a job arrives — a 5s client
+    read timeout turns every idle moment into a crash-and-reload loop. A longer
+    connect timeout likewise keeps ``.kiq()`` from failing when the box is busy.
+    """
     if not settings.redis_url or settings.redis_url == _MEMORY:
         return InMemoryBroker()
-    return ListQueueBroker(settings.redis_url, queue_name="agent")
+    return ListQueueBroker(
+        settings.redis_url,
+        queue_name="agent",
+        socket_timeout=None,
+        socket_connect_timeout=15,
+    )
 
 
 class AgentRunSpanMiddleware(TaskiqMiddleware):

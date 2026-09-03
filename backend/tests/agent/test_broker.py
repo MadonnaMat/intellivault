@@ -26,6 +26,15 @@ def test_build_broker_picks_redis_for_a_real_url() -> None:
     assert isinstance(build_broker(_settings(REDIS_URL="redis://redis:6379/0")), ListQueueBroker)
 
 
+def test_redis_broker_uses_a_blocking_read_timeout() -> None:
+    """redis-py 8.1 defaults socket_timeout to 5s, which crashes the worker's
+    blocking BRPOP — build_broker must pin it back to None."""
+    broker = build_broker(_settings(REDIS_URL="redis://redis:6379/0"))
+    conn = broker.connection_pool.make_connection()  # type: ignore[attr-defined]
+    assert conn.socket_timeout is None
+    assert conn.socket_connect_timeout == 15
+
+
 async def test_startup_builds_infra_and_shutdown_closes_it(monkeypatch: pytest.MonkeyPatch) -> None:
     closed: list[str] = []
 
