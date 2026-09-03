@@ -22,6 +22,197 @@
         "title": "AddPasskeyFinishRequest",
         "type": "object"
       },
+      "AgentRun": {
+        "description": "A single run in full, including in-flight progress.",
+        "properties": {
+          "committed_entity_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Committed Entity Ids",
+            "type": "array"
+          },
+          "committed_relationship_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Committed Relationship Ids",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "current_node": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Node"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Plan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentRunResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "topic",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AgentRun",
+        "type": "object"
+      },
+      "AgentRunCreate": {
+        "description": "Kick off a run: a research topic the agent turns into private graph nodes.",
+        "properties": {
+          "topic": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic"
+        ],
+        "title": "AgentRunCreate",
+        "type": "object"
+      },
+      "AgentRunResult": {
+        "description": "The finished run's summary, stored on the row and returned to the caller.",
+        "properties": {
+          "analysis": {
+            "title": "Analysis",
+            "type": "string"
+          },
+          "entities_created": {
+            "title": "Entities Created",
+            "type": "integer"
+          },
+          "relationships_created": {
+            "title": "Relationships Created",
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "required": [
+          "analysis",
+          "entities_created",
+          "relationships_created"
+        ],
+        "title": "AgentRunResult",
+        "type": "object"
+      },
+      "AgentRunSummary": {
+        "description": "One run in the list view.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "topic",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AgentRunSummary",
+        "type": "object"
+      },
       "CredentialSummary": {
         "description": "One registered passkey, as shown on the account page.",
         "properties": {
@@ -226,6 +417,30 @@
           "services"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "Plan": {
+        "description": "The plan node's output \u2014 a short framing plus the web-search queries.",
+        "properties": {
+          "queries": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Queries",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary",
+          "queries"
+        ],
+        "title": "Plan",
         "type": "object"
       },
       "RegisterBeginRequest": {
@@ -529,6 +744,113 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/agent/runs": {
+      "get": {
+        "operationId": "list_runs_agent_runs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentRunSummary"
+                  },
+                  "title": "Response List Runs Agent Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "operationId": "create_run_agent_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Run",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/agent/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_agent_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/auth/credentials": {
       "get": {
         "operationId": "get_credentials_auth_credentials_get",

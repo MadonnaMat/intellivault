@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from neo4j import AsyncGraphDatabase
 
 from app import observability
+from app.agent import agent_router
 from app.auth import auth_router
 from app.config import Settings, get_settings
 from app.graph import graph_router
@@ -79,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(graph_router)
+    app.include_router(agent_router)
 
     return app
 
