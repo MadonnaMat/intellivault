@@ -118,6 +118,10 @@ Project-level instructions for Claude Code working in this repository.
   `visibility="private"`) — no new Cypher — so every tenant predicate holds; a
   service 404/422 on an edge goes to the run's `skipped`, never fatal. The batch
   is **not** atomic — `append_committed_*` records each write as it lands.
+  Every LLM call, MCP call, and the whole run are time-bounded
+  (`agent_llm_timeout` / `agent_mcp_timeout` / `agent_run_timeout`) — a hung
+  model or MCP marks the run `failed`, never stalls it; `lookup` also caps how
+  many entities it enriches (`agent_lookup_max_entities`, 3 MCP calls each).
   `survey_graph_node` feeds the LLM a *bounded* digest: vector-search the topic
   (`agent_survey_max_entities` cap), falling back to lexical ranking.
   `fetch.guard_url` resolves every URL + redirect hop and refuses private /

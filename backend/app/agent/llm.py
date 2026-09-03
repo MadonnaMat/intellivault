@@ -24,6 +24,9 @@ def build_chat_model(settings: Settings) -> BaseChatModel:
         base_url=settings.ollama_url,
         model=settings.ollama_chat_model,
         temperature=settings.agent_llm_temperature,
+        # httpx timeout for the underlying ollama.AsyncClient — a model that
+        # stops streaming must not hang the run.
+        client_kwargs={"timeout": settings.agent_llm_timeout},
     )
 
 

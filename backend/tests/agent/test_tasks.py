@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from uuid import uuid4
@@ -9,12 +10,13 @@ from uuid import uuid4
 import pytest
 
 from app.agent.llm import StructuredOutputError
-from app.agent.tasks import _commit_agent_run, _run_agent
+from app.agent.tasks import _commit_agent_run, _guarded, _run_agent
 from app.config import Settings
 from tests.agent.conftest import (
     FakeChatModel,
     FakePool,
     FakeSearchTool,
+    as_pool,
     fake_infra,
     find_call,
     node_row,
@@ -151,6 +153,26 @@ async def test_commit_agent_run_marks_failed_and_reraises_when_commit_blows_up()
 
     _q, fail_args = find_call(pool, "status = 'failed'")
     assert fail_args[0] == _RUN
+
+
+async def test_guarded_marks_failed_with_a_clear_message_on_the_deadline() -> None:
+    pool = FakePool()
+    state = _make_state_for_guard()
+
+    async def _slow() -> None:
+        await asyncio.sleep(1)
+
+    with pytest.raises(TimeoutError):
+        await _guarded(as_pool(pool), _RUN, state, _slow(), 0.01)
+
+    _q, args = find_call(pool, "status = 'failed'")
+    assert args[0] == _RUN and "0.01s deadline" in args[1]
+
+
+def _make_state_for_guard() -> Any:
+    from app.agent.graph_state import initial_state
+
+    return initial_state("t", str(_OWNER), str(_RUN))
 
 
 async def test_run_agent_marks_failed_and_reraises_on_a_node_error() -> None:

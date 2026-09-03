@@ -17,6 +17,7 @@ from app.agent.deps import AgentDeps
 from app.agent.fetch import FetchedDoc, SsrfError, fetch_text, guard_url
 from app.agent.graph_state import AgentState
 from app.agent.llm import StructuredOutputError, structured
+from app.agent.nodes._common import call_tool
 from app.agent.prompts import prompt
 from app.agent.schemas import Plan, SearchHit
 
@@ -81,7 +82,15 @@ async def search_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     hits: list[SearchHit] = []
     limit = deps.settings.agent_max_sources
     for query in plan.queries:
-        raw = await deps.search_tool.ainvoke({"query": query, **_SEARCH_ARGS})
+        try:
+            raw = await call_tool(
+                deps.search_tool,
+                {"query": query, **_SEARCH_ARGS},
+                timeout=deps.settings.agent_mcp_timeout,
+            )
+        except Exception as exc:  # noqa: BLE001 - one slow/broken query isn't fatal
+            skipped.append(f"search: {query!r} ({exc})")
+            continue
         for hit in _parse_search_result(raw):
             if hit.url in seen or len(hits) >= limit:
                 continue

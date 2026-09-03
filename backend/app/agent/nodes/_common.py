@@ -4,14 +4,25 @@ normalising MCP tool output.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.agent.fetch import FetchedDoc
 from app.agent.schemas import GraphDigest
 
+if TYPE_CHECKING:
+    from langchain_core.tools import BaseTool
+
 _TOKEN = re.compile(r"[a-z0-9]+")
+
+
+async def call_tool(tool: BaseTool, args: dict[str, Any], *, timeout: float) -> Any:
+    """``tool.ainvoke(args)`` bounded by ``timeout`` — a hung MCP server raises
+    ``TimeoutError`` instead of stalling the run. The caller decides what a
+    failure means (skip note vs fatal)."""
+    return await asyncio.wait_for(tool.ainvoke(args), timeout)
 
 
 def coerce_mcp(raw: Any) -> Any:

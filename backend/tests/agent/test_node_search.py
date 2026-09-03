@@ -59,6 +59,18 @@ async def test_search_node_asks_the_tool_for_compact_json() -> None:
     assert tool.args == [{"query": "q", "response_format": "json", "result_detail": "compact"}]
 
 
+async def test_search_node_notes_a_slow_query_and_moves_on() -> None:
+    class _Hang(FakeSearchTool):
+        async def ainvoke(self, args: dict[str, object]) -> object:
+            raise TimeoutError("MCP timed out")
+
+    deps = fake_deps(driver=FakeNeo4jDriver(), search_tool=_Hang([]))
+    out = await search_node(make_state(plan=Plan(summary="s", queries=["q1", "q2"])), deps=deps)
+
+    assert out["search_hits"] == []
+    assert sum("MCP timed out" in n for n in out["skipped"]) == 2  # both queries, non-fatal
+
+
 @respx.mock
 async def test_fetch_node_tolerates_a_per_url_failure() -> None:
     respx.get("https://ok.test/a").mock(return_value=httpx.Response(200, html="<p>hello</p>"))

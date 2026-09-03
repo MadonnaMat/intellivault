@@ -35,6 +35,32 @@ async def test_lookup_adds_summaries_and_cross_links() -> None:
     }
 
 
+async def test_lookup_caps_the_number_of_entities_it_enriches() -> None:
+    from app.config import Settings
+
+    cap1 = Settings(
+        _env_file=None,
+        NEO4J_PASSWORD="n",
+        DATABASE_URL="postgresql://u:p@localhost:5432/db",
+        AGENT_LOOKUP_MAX_ENTITIES="1",
+    )
+    wiki = fake_wikipedia_tools(
+        search_wikipedia={"results": [{"title": "Bell Labs"}]},
+        get_summary={"summary": "lab"},
+    )
+    deps = fake_deps(driver=FakeNeo4jDriver(), wikipedia_tools=wiki, settings=cap1)
+    out = await lookup_node(make_state(structured=_DRAFT), deps=deps)
+
+    # only the first entity got a summary; both entities still present
+    ents = out["structured"].entities
+    assert len(ents) == 2
+    assert "wikipedia_summary" in ents[0].attributes
+    assert "wikipedia_summary" not in ents[1].attributes
+    assert any("2 entities (cap)" in n for n in out["skipped"])
+    # 3 MCP calls for the one enriched entity, not 6
+    assert len(wiki["search_wikipedia"].calls) == 1
+
+
 async def test_lookup_no_ops_once_when_the_wikipedia_mcp_is_unavailable() -> None:
     deps = fake_deps(driver=FakeNeo4jDriver(), wikipedia_tools={})  # nothing resolved
     out = await lookup_node(make_state(structured=_DRAFT), deps=deps)

@@ -77,8 +77,17 @@ class Settings(BaseSettings):
     agent_wikipedia_mcp_url: str = "http://localhost:8771/mcp"
     # Passed to ChatOllama — 0.0 keeps structure/plan extraction deterministic.
     agent_llm_temperature: float = 0.0
+    # Per-call timeouts so a hung model / MCP server can't stall a run forever,
+    # and an overall per-run deadline enforced by the worker. All in seconds.
+    agent_llm_timeout: float = 180.0
+    agent_mcp_timeout: float = 30.0
+    agent_run_timeout: float = 1800.0
     # Cap on source pages a single run fetches (across all its search queries).
     agent_max_sources: int = 5
+    # Cap on draft entities the `lookup` node enriches from Wikipedia — each one
+    # is 3 sequential MCP round trips, so an unbounded list (e.g. "every actor
+    # in <show>") can grind for many minutes.
+    agent_lookup_max_entities: int = 20
     # Cap on entities from the caller's visible graph fed to the LLM as context
     # (ranked by relevance to the topic, then recency) — the whole graph would
     # blow a small model's context and grows unbounded with the public graph.

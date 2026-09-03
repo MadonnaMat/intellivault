@@ -12,7 +12,7 @@ from typing import Any
 
 from app.agent.deps import AgentDeps
 from app.agent.graph_state import AgentState
-from app.agent.nodes._common import coerce_mcp
+from app.agent.nodes._common import call_tool, coerce_mcp
 from app.agent.schemas import DraftEntity, DraftRelationship, StructuredResult
 from app.agent.wikipedia_mcp import WANTED as _WIKI_TOOLS
 
@@ -56,12 +56,18 @@ async def _enrich_one(
     draft: DraftEntity, by_name: dict[str, str], *, deps: AgentDeps, skipped: list[str]
 ) -> tuple[DraftEntity, list[DraftRelationship]]:
     tools = deps.wikipedia_tools
+    timeout = deps.settings.agent_mcp_timeout
     try:
         title = _first_title(
-            await tools["search_wikipedia"].ainvoke({"query": draft.name}), draft.name
+            await call_tool(tools["search_wikipedia"], {"query": draft.name}, timeout=timeout),
+            draft.name,
         )
-        summary = _summary_text(await tools["get_summary"].ainvoke({"title": title}))
-        related = _related_names(await tools["get_related_topics"].ainvoke({"title": title}))
+        summary = _summary_text(
+            await call_tool(tools["get_summary"], {"title": title}, timeout=timeout)
+        )
+        related = _related_names(
+            await call_tool(tools["get_related_topics"], {"title": title}, timeout=timeout)
+        )
     except Exception as exc:  # noqa: BLE001
         skipped.append(f"lookup {draft.name}: {exc}")
         return draft, []
@@ -86,12 +92,22 @@ async def lookup_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     by_name = {e.name.lower(): e.temp_id for e in result.entities}
     skipped = list(state["skipped"])
 
+    # Each entity is 3 sequential MCP round trips — cap the count so a huge draft
+    # list can't grind for many minutes. The rest pass through un-enriched.
+    cap = deps.settings.agent_lookup_max_entities
+    to_enrich, rest = result.entities[:cap], result.entities[cap:]
+    if rest:
+        skipped.append(
+            f"lookup: enriched {len(to_enrich)} of {len(result.entities)} entities (cap)"
+        )
+
     entities: list[DraftEntity] = []
     extra: list[DraftRelationship] = []
-    for draft in result.entities:
+    for draft in to_enrich:
         enriched, edges = await _enrich_one(draft, by_name, deps=deps, skipped=skipped)
         entities.append(enriched)
         extra.extend(edges)
+    entities.extend(rest)
 
     seen = {(r.from_ref, r.to_ref, r.kind) for r in result.relationships}
     new_edges = [r for r in extra if (r.from_ref, r.to_ref, r.kind) not in seen]
