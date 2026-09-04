@@ -106,13 +106,15 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
     ownedEntityIds.has(rel.from_id) ||
     ownedEntityIds.has(rel.to_id);
 
-  async function toggleVisibility(entity: GraphEntity) {
+  // cascadeOverride comes from the diagram's shift-click; the table's Switch
+  // calls this with no second argument, falling back to its own checkbox.
+  async function toggleVisibility(entity: GraphEntity, cascadeOverride?: boolean) {
     const next: Visibility = entity.visibility === "public" ? "private" : "public";
     setPendingId(entity.id);
     setError(null);
     const result = await setEntityVisibility(entity.id, {
       visibility: next,
-      cascade: !!cascade[entity.id],
+      cascade: cascadeOverride ?? !!cascade[entity.id],
     });
     setPendingId(null);
     if (result.ok) refresh();
