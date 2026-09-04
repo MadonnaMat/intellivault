@@ -206,6 +206,14 @@ async def test_search_tool_result_feeds_into_the_reply(monkeypatch: pytest.Monke
     reply_history = seen[-1]
     assert any(m["role"] == "tool" and "Bell Labs" in m["content"] for m in reply_history)
 
+    # Ollama's chat API expects a tool-role message to be preceded by the
+    # assistant message that requested it — a dropped assistant turn here
+    # leaves an orphan "tool" message some chat templates choke on.
+    tool_index = next(i for i, m in enumerate(reply_history) if m["role"] == "tool")
+    preceding = reply_history[tool_index - 1]
+    assert preceding["role"] == "assistant"
+    assert preceding["tool_calls"] == decision.tool_calls
+
 
 async def test_search_tool_short_query_is_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
     decision = OllamaMessage(
@@ -310,6 +318,15 @@ async def test_tool_loop_stops_at_the_round_cap_without_a_launch(
     messages = list(controller.state["messages"])
     tool_call_parts = [p for p in messages[-1]["parts"] if p["type"] == "tool-call"]
     assert len(tool_call_parts) == settings.chat_tool_call_max_rounds
+
+    # Every round's tool message is paired with the assistant turn that
+    # requested it, not just the first.
+    reply_history = seen[-1]
+    tool_indices = [i for i, m in enumerate(reply_history) if m["role"] == "tool"]
+    assert len(tool_indices) == settings.chat_tool_call_max_rounds
+    for i in tool_indices:
+        assert reply_history[i - 1]["role"] == "assistant"
+        assert reply_history[i - 1]["tool_calls"] == decision.tool_calls
 
 
 async def test_short_topic_is_not_launched(monkeypatch: pytest.MonkeyPatch) -> None:

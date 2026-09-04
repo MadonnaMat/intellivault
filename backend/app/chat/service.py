@@ -181,12 +181,14 @@ async def _resolve_tools(
     client: httpx.AsyncClient,
     settings: Settings,
     tracer_provider: observability.TracerProvider | None,
-) -> tuple[list[str], list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Bounded decide-loop: offer both tools, execute whatever the model
-    calls, feed each result back as its own history turn, and repeat — until
-    the model stops calling tools, launches research (a natural stopping
-    point for the turn), or the round cap is hit."""
-    notes: list[str] = []
+    calls, and append both the model's tool_calls turn and each tool's result
+    back into ``ollama_history`` — the assistant(tool_calls) -> tool(result)
+    pairing Ollama's chat API expects — and repeat, until the model stops
+    calling tools, launches research (a natural stopping point for the turn),
+    or the round cap is hit. ``ollama_history`` is left ready for the
+    reply-phase call to continue from directly."""
     parts: list[dict[str, Any]] = []
     called: list[str] = []
     for _round in range(settings.chat_tool_call_max_rounds):
@@ -194,6 +196,9 @@ async def _resolve_tools(
         tool_calls = decision.tool_calls or []
         if not tool_calls:
             break
+        ollama_history.append(
+            {"role": "assistant", "content": decision.content, "tool_calls": tool_calls}
+        )
         launched = False
         for call in tool_calls:
             name = call.get("function", {}).get("name")
@@ -201,14 +206,13 @@ async def _resolve_tools(
                 call, user=user, pool=pool, settings=settings, tracer_provider=tracer_provider
             )
             called.append(str(name))
-            notes.append(note)
             if part is not None:
                 parts.append(part)
             ollama_history.append({"role": "tool", "content": note})
             launched = launched or did_launch
         if launched:
             break
-    return notes, parts, called
+    return parts, called
 
 
 async def run_callback(
@@ -239,7 +243,7 @@ async def run_callback(
         metadata={"user_id": str(user.id), "message_count": len(history)},
     ) as span:
         try:
-            tool_notes, tool_parts, tools_called = await _resolve_tools(
+            tool_parts, tools_called = await _resolve_tools(
                 ollama_history,
                 user=user,
                 pool=pool,
@@ -262,17 +266,16 @@ async def run_callback(
         }
         controller.state["messages"].append(assistant_message)
 
-        # Built from `history` (pre-placeholder), not controller.state["messages"] —
-        # a trailing *empty* assistant turn in the sent history confuses some
+        # `ollama_history` never saw controller.state["messages"]'s placeholder
+        # (it was built from `history`, captured before the append above) — a
+        # trailing *empty* assistant turn in the sent history confuses some
         # models' chat templates into emitting literal <think> tags even with
-        # think=False (reproduced directly against Ollama's /api/chat).
-        reply_history = [{"role": "system", "content": system}, *_flatten(history)]
-        for note in tool_notes:
-            reply_history.append({"role": "tool", "content": note})
-
+        # think=False (reproduced directly against Ollama's /api/chat). It's
+        # also now correctly paired (assistant tool_calls -> tool result) from
+        # _resolve_tools, so the reply call continues from it directly.
         try:
             text = ""
-            async for delta in ollama_client.chat_stream(client, settings, reply_history):
+            async for delta in ollama_client.chat_stream(client, settings, ollama_history):
                 text += delta
                 controller.state["messages"][-1]["parts"][0]["text"] = text
         except httpx.HTTPError as exc:
