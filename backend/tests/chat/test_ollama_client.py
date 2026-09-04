@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from app.chat.ollama_client import chat_once, chat_stream
+from app.chat.ollama_client import chat_once, chat_stream, embed_query
 from tests.chat.conftest import make_settings
 
 _OLLAMA = "http://ollama.test:11434"
@@ -75,6 +75,29 @@ async def test_chat_once_raises_on_a_backend_error() -> None:
     async with httpx.AsyncClient() as client:
         with pytest.raises(httpx.HTTPStatusError):
             await chat_once(client, make_settings(), [{"role": "user", "content": "hi"}])
+
+
+@respx.mock
+async def test_embed_query_posts_the_configured_model_and_returns_the_vector() -> None:
+    route = respx.post(f"{_OLLAMA}/api/embed").mock(
+        return_value=httpx.Response(200, json={"embeddings": [[0.1, 0.2, 0.3]]})
+    )
+
+    async with httpx.AsyncClient() as client:
+        vector = await embed_query(client, make_settings(), "the transistor")
+
+    assert vector == [0.1, 0.2, 0.3]
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"model": "nomic-embed-text", "input": "the transistor"}
+
+
+@respx.mock
+async def test_embed_query_raises_on_a_backend_error() -> None:
+    respx.post(f"{_OLLAMA}/api/embed").mock(return_value=httpx.Response(500, text="boom"))
+
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await embed_query(client, make_settings(), "the transistor")
 
 
 @respx.mock

@@ -124,6 +124,13 @@ class Settings(BaseSettings):
     # Shorter than agent_llm_timeout — an interactive chat turn shouldn't hold a
     # browser tab open for minutes the way a research run can.
     chat_llm_timeout: float = 60.0
+    # Cap on entities `search_knowledge_graph` returns per call — mirrors
+    # agent_survey_max_entities's reasoning, scaled down for an interactive turn.
+    chat_search_max_entities: int = 5
+    # Bounded tool-calling loop: how many decide-rounds a single chat turn may
+    # spend calling search_knowledge_graph/launch_research_agent before it must
+    # produce a plain reply.
+    chat_tool_call_max_rounds: int = 3
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps
