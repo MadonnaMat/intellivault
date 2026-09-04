@@ -93,12 +93,25 @@ async def test_guard_url_allows_a_public_address() -> None:
     assert await guard_url("https://example.com/a") == "https://example.com/a"
 
 
-def test_extract_text_drops_script_style_and_collapses_whitespace() -> None:
+def test_extract_text_drops_script_style_and_boilerplate() -> None:
     html = """
     <html><head><title>t</title><style>.x{color:red}</style></head>
-    <body><p>Hello   world</p><script>alert(1)</script><p>again</p></body></html>
+    <body><nav>Home About Login</nav>
+    <article><h1>Headline</h1><p>Hello   world.</p><script>alert(1)</script>
+    <p>A second real sentence with enough words to look like content.</p></article>
+    <footer>Copyright 2026</footer></body></html>
     """
-    assert _extract_text(html.encode()) == "Hello world again"
+    text = _extract_text(html.encode())
+    assert "Hello world." in text
+    assert "second real sentence" in text
+    assert "alert" not in text and "Copyright" not in text  # script + boilerplate gone
+
+
+def test_extract_text_falls_back_to_a_tag_strip_for_a_non_article() -> None:
+    # Too short / no article structure -> trafilatura yields nothing -> raw strip.
+    assert _extract_text(b"<html><body><span>just a fragment</span></body></html>") == (
+        "just a fragment"
+    )
 
 
 @respx.mock

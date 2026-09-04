@@ -127,10 +127,26 @@ class _TextExtractor(HTMLParser):
         return " ".join(" ".join(self._chunks).split())
 
 
-def _extract_text(body: bytes) -> str:
+def _strip_tags(html: str) -> str:
     parser = _TextExtractor()
-    parser.feed(body.decode("utf-8", errors="replace"))
+    parser.feed(html)
     return parser.text
+
+
+def _extract_text(body: bytes) -> str:
+    """Main-article text if we can isolate it, else the whole stripped page.
+
+    ``trafilatura`` drops nav/sidebar/footer boilerplate — a raw tag-strip of a
+    Wikipedia or news page is mostly menu chrome, which derails the analysis.
+    """
+    html = body.decode("utf-8", errors="replace")
+    try:
+        import trafilatura
+
+        extracted = trafilatura.extract(html, include_comments=False, include_tables=True)
+    except Exception:  # noqa: BLE001 - never let extraction failure kill a fetch  # pragma: no cover
+        extracted = None
+    return extracted or _strip_tags(html)
 
 
 async def _read_capped(response: httpx.Response, limit: int) -> bytes:
