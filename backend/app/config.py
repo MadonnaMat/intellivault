@@ -112,7 +112,7 @@ class Settings(BaseSettings):
     # When true, a run pauses after `lookup` at status=awaiting_review; the
     # drafted entities are only committed once POST /agent/runs/{id}/review
     # approves them.
-    agent_review_required: bool = False
+    agent_review_required: bool = True
     # taskiq-admin dashboard (optional): when `taskiq_admin_url` is set, the
     # broker reports every task's lifecycle (queued / started / finished / error)
     # to it. Empty (the default) = no reporting. The token must match the

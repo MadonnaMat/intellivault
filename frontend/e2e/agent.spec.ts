@@ -18,6 +18,41 @@ test.beforeEach(async () => {
   await resetGraph();
 });
 
+/**
+ * AGENT_REVIEW_REQUIRED defaults to true, so a run parks at awaiting_review
+ * before commit. Poll to that pause, approve it, then poll on to a terminal
+ * status.
+ */
+async function pollToSucceeded(
+  request: import("@playwright/test").APIRequestContext,
+  id: string,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`${BACKEND}/agent/runs/${id}`);
+        return (await res.json()).status as string;
+      },
+      { timeout: 60_000, intervals: [1_000] },
+    )
+    .toBe("awaiting_review");
+
+  const reviewed = await request.post(`${BACKEND}/agent/runs/${id}/review`, {
+    data: { decision: "approve" },
+  });
+  expect(reviewed.status()).toBe(200);
+
+  await expect
+    .poll(
+      async () => {
+        const res = await request.get(`${BACKEND}/agent/runs/${id}`);
+        return (await res.json()).status as string;
+      },
+      { timeout: 60_000, intervals: [1_000] },
+    )
+    .toBe("succeeded");
+}
+
 test("a run turns a topic into the caller's private graph entities", async ({ page }) => {
   await addVirtualAuthenticator(page);
   await registerFromForm(page, "agent@example.com", "Agent User");
@@ -29,15 +64,7 @@ test("a run turns a topic into the caller's private graph entities", async ({ pa
   expect(created.status()).toBe(202);
   const { id } = (await created.json()) as { id: string };
 
-  await expect
-    .poll(
-      async () => {
-        const res = await page.request.get(`${BACKEND}/agent/runs/${id}`);
-        return (await res.json()).status as string;
-      },
-      { timeout: 60_000, intervals: [1_000] },
-    )
-    .toBe("succeeded");
+  await pollToSucceeded(page.request, id);
 
   const run = await (await page.request.get(`${BACKEND}/agent/runs/${id}`)).json();
   expect(run.result.entities_created).toBeGreaterThan(0);
@@ -64,13 +91,7 @@ test("another user cannot see a run's private entities", async ({ browser }) => 
     data: { topic: "The invention of the transistor at Bell Labs" },
   });
   const { id } = (await created.json()) as { id: string };
-  await expect
-    .poll(
-      async () =>
-        (await (await runner.request.get(`${BACKEND}/agent/runs/${id}`)).json()).status as string,
-      { timeout: 60_000, intervals: [1_000] },
-    )
-    .toBe("succeeded");
+  await pollToSucceeded(runner.request, id);
 
   const visitorCtx = await browser.newContext();
   const visitor = await visitorCtx.newPage();
