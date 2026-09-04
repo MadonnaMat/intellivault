@@ -98,6 +98,35 @@ async def test_list_graph_passes_owner_and_maps_entities_and_edges() -> None:
     assert driver.calls[1][1] == {"owner_id": _OWNER}
 
 
+async def test_list_graph_maps_sources_onto_entities() -> None:
+    driver = FakeNeo4jDriver(
+        [{"e": _NODE, "sources": ["https://a.example/x", "https://b.example/y"]}],
+        [],
+    )
+
+    view = await service.list_graph(cast(AsyncDriver, driver), _OWNER)
+
+    assert view.entities[0].sources == ["https://a.example/x", "https://b.example/y"]
+
+
+async def test_attach_sources_sends_owner_entity_and_urls() -> None:
+    driver = FakeNeo4jDriver([])
+    entity_id = str(uuid4())
+    urls = ["https://a.example/x", "https://b.example/y"]
+
+    await service.attach_sources(cast(AsyncDriver, driver), _OWNER, entity_id, urls)
+
+    query, params = driver.calls[0]
+    assert "SOURCED_FROM" in query
+    assert params == {"owner_id": _OWNER, "entity_id": entity_id, "urls": urls}
+
+
+async def test_attach_sources_short_circuits_on_no_urls() -> None:
+    driver = FakeNeo4jDriver([])
+    await service.attach_sources(cast(AsyncDriver, driver), _OWNER, str(uuid4()), [])
+    assert driver.calls == []
+
+
 async def test_list_visible_relationships_among_passes_ids_and_owner() -> None:
     driver = FakeNeo4jDriver([{"r": _REL, "from_id": _FROM, "to_id": _TO}])
     ids = [str(_FROM), str(_TO)]
@@ -216,6 +245,7 @@ async def test_change_visibility_to_private_cleans_incident_edges() -> None:
     node_id = str(uuid4())
     driver = FakeNeo4jDriver(
         [{"id": node_id, "changed": True}],  # set_entity_visibility
+        [],  # sync_entity_sources (return value unused)
         [{"changed": 0}],  # demote_owned_edges
         [{"removed": 2}],  # remove_foreign_edges
     )
@@ -226,7 +256,57 @@ async def test_change_visibility_to_private_cleans_incident_edges() -> None:
 
     assert [str(i) for i in result.affected_ids] == [node_id]
     assert any("DELETE r" in text for text, _ in driver.calls)  # remove_foreign_edges ran
-    assert sum(1 for _, params in driver.calls if params.get("ids") == [node_id]) == 2
+    # sync_entity_sources, demote_owned_edges, remove_foreign_edges all key off ids=[node_id].
+    assert sum(1 for _, params in driver.calls if params.get("ids") == [node_id]) == 3
+
+
+async def test_change_visibility_single_flip_syncs_sources() -> None:
+    node_id = str(uuid4())
+    driver = FakeNeo4jDriver([{"id": node_id, "changed": True}])
+
+    await service.change_visibility(
+        cast(AsyncDriver, driver), _OWNER, node_id, VisibilityChange(visibility="public")
+    )
+
+    query, params = driver.calls[1]
+    assert "sync_entity_sources" not in query  # the file's contents, not its name, are recorded
+    assert "SOURCED_FROM" in query
+    assert params == {"ids": [node_id], "owner_id": _OWNER}
+
+
+async def test_change_visibility_single_flip_noop_does_not_sync_sources() -> None:
+    driver = FakeNeo4jDriver([{"id": str(uuid4()), "changed": False}])
+
+    await service.change_visibility(
+        cast(AsyncDriver, driver), _OWNER, str(uuid4()), VisibilityChange(visibility="public")
+    )
+
+    assert len(driver.calls) == 1  # only set_entity_visibility ran
+
+
+async def test_change_visibility_cascade_syncs_sources_for_all_changed() -> None:
+    start, neighbour = str(uuid4()), str(uuid4())
+    driver = FakeNeo4jDriver(
+        [{"id": start}],  # owned_entity_exists
+        [{"id": neighbour}],  # owned_neighbours of {start}
+        [],  # owned_neighbours of {neighbour} — BFS stops
+        [{"changed": [start, neighbour]}],  # flip_entities
+        [{"changed": 1}],  # flip_relationships
+    )
+
+    await service.change_visibility(
+        cast(AsyncDriver, driver),
+        _OWNER,
+        start,
+        VisibilityChange(visibility="public", cascade=True),
+    )
+
+    # calls: 0 owned_entity_exists, 1-2 owned_neighbours, 3 flip_entities,
+    # 4 flip_relationships, 5 sync_entity_sources.
+    query, params = driver.calls[5]
+    assert "SOURCED_FROM" in query
+    assert set(cast(list[str], params["ids"])) == {start, neighbour}
+    assert params["owner_id"] == _OWNER
 
 
 async def test_change_visibility_cascade_bfs_then_flips_only_changed() -> None:

@@ -402,3 +402,54 @@ async def test_set_entity_embedding_rejects_a_foreign_entity(graph_driver: Async
     with pytest.raises(HTTPException) as exc:
         await service.set_entity_embedding(graph_driver, _BOB, str(alice_pub.id), [0.1] * 768)
     assert exc.value.status_code == 404
+
+
+async def test_attach_sources_dedupes_the_same_url_across_owners(
+    graph_driver: AsyncDriver,
+) -> None:
+    alice_entity = await service.create_entity(
+        graph_driver, _ALICE, EntityInput(name="a", kind="n")
+    )
+    bob_entity = await service.create_entity(graph_driver, _BOB, EntityInput(name="b", kind="n"))
+    url = "https://example.com/shared-page"
+
+    await service.attach_sources(graph_driver, _ALICE, str(alice_entity.id), [url])
+    await service.attach_sources(graph_driver, _BOB, str(bob_entity.id), [url])
+
+    alice_sources = (await service.list_graph(graph_driver, _ALICE)).entities
+    bob_view_sources = (await service.list_graph(graph_driver, _BOB)).entities
+    assert next(e.sources for e in alice_sources if e.id == alice_entity.id) == [url]
+    assert next(e.sources for e in bob_view_sources if e.id == bob_entity.id) == [url]
+
+
+async def test_attach_sources_surfaces_on_a_private_entity_to_its_owner_only(
+    graph_driver: AsyncDriver,
+) -> None:
+    entity = await service.create_entity(graph_driver, _ALICE, EntityInput(name="a", kind="n"))
+    await service.attach_sources(
+        graph_driver, _ALICE, str(entity.id), ["https://example.com/private-source"]
+    )
+
+    alice_view = (await service.list_graph(graph_driver, _ALICE)).entities
+    assert next(e.sources for e in alice_view if e.id == entity.id) == [
+        "https://example.com/private-source"
+    ]
+    bob_view = (await service.list_graph(graph_driver, _BOB)).entities
+    assert not any(e.id == entity.id for e in bob_view)  # entity itself stays hidden from Bob
+
+
+async def test_visibility_flip_syncs_the_sourced_from_edge(graph_driver: AsyncDriver) -> None:
+    entity = await service.create_entity(graph_driver, _ALICE, EntityInput(name="a", kind="n"))
+    await service.attach_sources(graph_driver, _ALICE, str(entity.id), ["https://example.com/x"])
+
+    await service.change_visibility(
+        graph_driver, _ALICE, str(entity.id), VisibilityChange(visibility="public")
+    )
+
+    async with graph_driver.session(database="neo4j") as session:
+        result = await session.run(
+            "MATCH (:Entity {id: $id})-[r:SOURCED_FROM]->(:Source) RETURN r.visibility AS v",
+            id=str(entity.id),
+        )
+        rows = await result.values()
+    assert rows == [["public"]]

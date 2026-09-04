@@ -36,6 +36,7 @@ def test_loads_0001_with_its_rollback() -> None:
     assert [m.id for m in migrations] == [
         "0001.entity-and-relationship-schema",
         "0002.entity-vector-index",
+        "0003.source-nodes",
     ]
     first = migrations[0]
     assert len(first.statements) == 4
@@ -46,6 +47,10 @@ def test_loads_0001_with_its_rollback() -> None:
     vector = migrations[1]
     assert vector.statements[0].startswith("CREATE VECTOR INDEX entity_embedding")
     assert vector.rollback == ("DROP INDEX entity_embedding IF EXISTS",)
+
+    source = migrations[2]
+    assert source.statements[0].startswith("CREATE CONSTRAINT source_url_unique")
+    assert source.rollback == ("DROP CONSTRAINT source_url_unique IF EXISTS",)
 
 
 def test_migrations_dir_is_the_repo_directory() -> None:
@@ -132,9 +137,13 @@ async def test_apply_runs_pending_and_records_them() -> None:
     driver = _FakeDriver()
     applied = await apply_graph_migrations(cast(AsyncDriver, driver))
 
-    assert applied == ["0001.entity-and-relationship-schema", "0002.entity-vector-index"]
+    assert applied == [
+        "0001.entity-and-relationship-schema",
+        "0002.entity-vector-index",
+        "0003.source-nodes",
+    ]
     texts = [t for t, _ in driver.calls]
-    assert sum(t.startswith("CREATE CONSTRAINT") for t in texts) == 1
+    assert sum(t.startswith("CREATE CONSTRAINT") for t in texts) == 2
     assert sum(t.startswith("CREATE INDEX") for t in texts) == 3
     assert sum(t.startswith("CREATE VECTOR INDEX") for t in texts) == 1
     assert any(t.startswith("CREATE (m:_GraphMigration") for t in texts)
@@ -142,7 +151,11 @@ async def test_apply_runs_pending_and_records_them() -> None:
 
 async def test_apply_skips_already_recorded() -> None:
     driver = _FakeDriver(
-        applied=["0001.entity-and-relationship-schema", "0002.entity-vector-index"]
+        applied=[
+            "0001.entity-and-relationship-schema",
+            "0002.entity-vector-index",
+            "0003.source-nodes",
+        ]
     )
     applied = await apply_graph_migrations(cast(AsyncDriver, driver))
     assert applied == []

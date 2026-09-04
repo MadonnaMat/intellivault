@@ -647,6 +647,8 @@ export interface components {
              * Format: uuid
              */
             owner_id: string;
+            /** Sources */
+            sources?: string[];
             /**
              * Updated At
              * Format: date-time

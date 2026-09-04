@@ -52,6 +52,16 @@ async def _embed_entity(
         skipped.append(f"embed {draft.name}: {exc}")
 
 
+async def _attach_sources(
+    entity_id: UUID, urls: list[str], *, state: AgentState, deps: AgentDeps, skipped: list[str]
+) -> None:
+    """Best-effort: a failure to link sources is noted, never fatal to the commit."""
+    try:
+        await graph_service.attach_sources(deps.driver, state["owner_id"], str(entity_id), urls)
+    except Exception as exc:  # noqa: BLE001
+        skipped.append(f"attach sources for {entity_id}: {exc}")
+
+
 async def _commit_entities(
     drafts: list[DraftEntity], *, state: AgentState, deps: AgentDeps
 ) -> tuple[dict[str, UUID], list[str], list[DigestEntity], list[str]]:
@@ -60,6 +70,11 @@ async def _commit_entities(
     committed = list(state["committed_entity_ids"])
     created: list[DigestEntity] = []
     skipped: list[str] = []
+    # Every source this run fetched — attached to every entity it commits, not
+    # a precise per-entity citation (the pipeline merges all sources into one
+    # synthesis blob before entities are extracted, so a tighter link isn't
+    # available; see the source-nodes migration's docstring).
+    source_urls = [doc.url for doc in state["documents"]]
     for draft in drafts:
         if draft.existing_id is not None:
             id_map[draft.temp_id] = draft.existing_id
@@ -75,6 +90,8 @@ async def _commit_entities(
         committed.append(str(entity.id))
         created.append(DigestEntity(id=entity.id, name=entity.name, kind=entity.kind))
         await agent_service.append_committed_entity(deps.pool, run_id, entity.id)
+        if source_urls:
+            await _attach_sources(entity.id, source_urls, state=state, deps=deps, skipped=skipped)
         await _embed_entity(entity.id, draft, state=state, deps=deps, skipped=skipped)
     return id_map, committed, created, skipped
 
