@@ -25,7 +25,7 @@ test("register, then log out and back in with the same passkey", async ({ page }
 
   await registerFromForm(page, "ada@example.com", "Ada Lovelace");
   await expectSignedIn(page, "ada@example.com");
-  await expect(page.locator("p.subtitle")).toContainText("Ada Lovelace");
+  await expect(page.getByTestId("app-shell-user")).toContainText("Ada Lovelace");
 
   await page.goto("/account");
   await logout(page);
@@ -70,7 +70,7 @@ test("account: edit the display name and it persists across a re-login", async (
 
   await logout(page);
   await loginWithPasskey(page);
-  await expect(page.locator("p.subtitle")).toContainText("After");
+  await expect(page.getByTestId("app-shell-user")).toContainText("After");
 });
 
 test("account: add a second passkey, then remove one (never the last)", async ({ page }) => {
@@ -79,7 +79,8 @@ test("account: add a second passkey, then remove one (never the last)", async ({
   await expectSignedIn(page, "keys@example.com");
 
   await page.goto("/account");
-  await expect(page.locator(".ant-list-item")).toHaveCount(1);
+  const passkeys = page.getByTestId("passkeys-list").locator(".ant-list-item");
+  await expect(passkeys).toHaveCount(1);
   await expect(page.getByTestId(/credential-.*-remove/).first()).toBeDisabled();
 
   // A second device: the first is no longer present (so the new-passkey
@@ -87,12 +88,12 @@ test("account: add a second passkey, then remove one (never the last)", async ({
   await addVirtualAuthenticator(page);
   await firstDevice.remove();
   await addPasskey(page, "Phone");
-  await expect(page.locator(".ant-list-item")).toHaveCount(2);
+  await expect(passkeys).toHaveCount(2);
 
   const removeButtons = page.getByTestId(/credential-.*-remove/);
   await expect(removeButtons.first()).toBeEnabled();
   await removeButtons.first().click();
-  await expect(page.locator(".ant-list-item")).toHaveCount(1);
+  await expect(passkeys).toHaveCount(1);
   await expect(page.getByTestId(/credential-.*-remove/).first()).toBeDisabled();
 });
 

@@ -58,7 +58,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
         </Space>
         <Space size="middle">
           <Typography.Text type="secondary" data-testid="app-shell-user">
-            {user.display_name}
+            {user.display_name} ({user.email})
           </Typography.Text>
           <LogoutButton />
         </Space>

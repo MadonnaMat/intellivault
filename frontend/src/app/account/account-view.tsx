@@ -121,6 +121,7 @@ export function AccountView({
           }
         >
           <List
+            data-testid="passkeys-list"
             dataSource={credentials}
             locale={{ emptyText: "No passkeys" }}
             renderItem={(cred) => (
