@@ -103,6 +103,11 @@ export function RunDetailView({
   const [run, setRun] = useState<AgentRun>(initial);
   const [streamNotice, setStreamNotice] = useState<string | null>(null);
   const { loading, error, run: runAction } = useAsyncAction();
+  // The stream treats awaiting_review as terminal (no point holding a
+  // connection open through however long a human takes to review), so an
+  // approval needs a fresh subscription to keep watching running -> succeeded
+  // — bumping this re-runs the effect below.
+  const [subscription, setSubscription] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,12 +129,17 @@ export function RunDetailView({
     return () => {
       cancelled = true;
     };
-  }, [runId]);
+  }, [runId, subscription]);
 
   function onReview(decision: "approve" | "reject") {
     return runAction(() => reviewRun(runId, { decision }), {
       fallback: `Could not ${decision} the run`,
-      onSuccess: (data) => data && setRun(data),
+      onSuccess: (data) => {
+        if (!data) return;
+        setRun(data);
+        setStreamNotice(null);
+        setSubscription((n) => n + 1);
+      },
     });
   }
 

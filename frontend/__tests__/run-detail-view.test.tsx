@@ -96,10 +96,15 @@ describe("RunDetailView", () => {
     );
 
     expect(screen.getByTestId("run-review-approve")).toBeInTheDocument();
+    expect(streamRunMock).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("run-review-approve"));
 
     await waitFor(() => expect(reviewRun).toHaveBeenCalledWith("r1", { decision: "approve" }));
     await waitFor(() => expect(screen.getByTestId("run-status")).toHaveTextContent("running"));
+    // awaiting_review is terminal for the stream (it closed once the initial
+    // subscription reported it) — approving must open a fresh one so later
+    // running -> succeeded progress is still observed live.
+    await waitFor(() => expect(streamRunMock).toHaveBeenCalledTimes(2));
   });
 
   it("rejects via reviewRun on the reject button", async () => {
