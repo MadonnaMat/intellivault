@@ -85,9 +85,13 @@ class Settings(BaseSettings):
     agent_llm_temperature: float = 0.0
     # Per-call timeouts so a hung model / MCP server can't stall a run forever,
     # and an overall per-run deadline enforced by the worker. All in seconds.
-    agent_llm_timeout: float = 180.0
+    agent_llm_timeout: float = 240.0
     agent_mcp_timeout: float = 30.0
-    agent_run_timeout: float = 1800.0
+    agent_run_timeout: float = 2400.0
+    # Passed to ChatOllama as `reasoning` — False disables a thinking model's
+    # (qwen3, deepseek-r1) `<think>` block, which roughly halves latency on a
+    # local model at a small quality cost. Set true if the box is fast.
+    agent_llm_reasoning: bool = False
     # Cap on source pages a single run fetches (across all its search queries).
     agent_max_sources: int = 5
     # Cap on draft entities the `lookup` node enriches from Wikipedia — each one

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.agent.fetch import FetchedDoc
 from app.agent.nodes import analyze_one_node, synthesize_node, text_of
 from tests.agent.conftest import FakeChatModel, fake_deps, make_state
@@ -14,6 +16,18 @@ async def test_analyze_one_produces_one_note_per_source() -> None:
         {"topic": "t", "document": FetchedDoc(url="https://s.test/1", text="body")}, deps=deps
     )
     assert out["source_notes"] == ["<https://s.test/1> a fact"]
+
+
+async def test_analyze_one_drops_a_source_whose_llm_call_fails() -> None:
+    class _Boom(FakeChatModel):
+        async def ainvoke(self, _messages: object) -> Any:
+            raise TimeoutError("model too slow")
+
+    deps = fake_deps(driver=FakeNeo4jDriver(), chat_model=_Boom())
+    out = await analyze_one_node(
+        {"topic": "t", "document": FetchedDoc(url="https://s.test/1", text="body")}, deps=deps
+    )
+    assert out["source_notes"] == []  # no reducer on `skipped` -> just drop the note
 
 
 async def test_synthesize_folds_the_notes() -> None:

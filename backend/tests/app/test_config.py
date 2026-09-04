@@ -59,10 +59,12 @@ def test_agent_defaults() -> None:
     assert settings.agent_worker_concurrency == 4
     assert settings.agent_search_retries == 1
     assert settings.agent_critique_retries == 1
-    assert settings.agent_llm_timeout == 180.0
+    assert settings.agent_llm_timeout == 240.0
     assert settings.agent_mcp_timeout == 30.0
-    assert settings.agent_run_timeout == 1800.0
+    assert settings.agent_run_timeout == 2400.0
     assert settings.agent_lookup_max_entities == 20
+    assert settings.agent_llm_reasoning is False
+    assert _make(AGENT_LLM_REASONING="true").agent_llm_reasoning is True
     assert _make(AGENT_RUN_TIMEOUT="60", AGENT_LOOKUP_MAX_ENTITIES="3").agent_run_timeout == 60.0
     assert settings.agent_review_required is False
     assert _make(AGENT_REVIEW_REQUIRED="true").agent_review_required is True
