@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "AddMessageCommand": {
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/ThreadMessage"
+          },
+          "type": {
+            "const": "add-message",
+            "default": "add-message",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "AddMessageCommand",
+        "type": "object"
+      },
       "AddPasskeyFinishRequest": {
         "properties": {
           "credential": {
@@ -20,6 +38,31 @@
           "credential"
         ],
         "title": "AddPasskeyFinishRequest",
+        "type": "object"
+      },
+      "AddToolResultCommand": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          },
+          "toolCallId": {
+            "title": "Toolcallid",
+            "type": "string"
+          },
+          "type": {
+            "const": "add-tool-result",
+            "default": "add-tool-result",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "toolCallId",
+          "result"
+        ],
+        "title": "AddToolResultCommand",
         "type": "object"
       },
       "AgentRun": {
@@ -271,6 +314,71 @@
           "updated_at"
         ],
         "title": "AgentRunSummary",
+        "type": "object"
+      },
+      "AssistantRequest": {
+        "properties": {
+          "commands": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "add-message": "#/components/schemas/AddMessageCommand",
+                  "add-tool-result": "#/components/schemas/AddToolResultCommand"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AddMessageCommand"
+                },
+                {
+                  "$ref": "#/components/schemas/AddToolResultCommand"
+                }
+              ]
+            },
+            "title": "Commands",
+            "type": "array"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          }
+        },
+        "required": [
+          "commands"
+        ],
+        "title": "AssistantRequest",
         "type": "object"
       },
       "CredentialSummary": {
@@ -550,6 +658,30 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "MessagePart": {
+        "properties": {
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "MessagePart",
+        "type": "object"
+      },
       "Plan": {
         "description": "The plan node's output \u2014 a short framing plus the web-search queries.",
         "properties": {
@@ -773,6 +905,31 @@
           }
         },
         "title": "StructuredResult",
+        "type": "object"
+      },
+      "ThreadMessage": {
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/MessagePart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "parts"
+        ],
+        "title": "ThreadMessage",
         "type": "object"
       },
       "UpdateAccountRequest": {
@@ -1404,6 +1561,45 @@
         "summary": "Register Finish",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/chat": {
+      "post": {
+        "operationId": "chat_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat",
+        "tags": [
+          "chat"
         ]
       }
     },

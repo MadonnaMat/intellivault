@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     taskiq_admin_url: str = ""
     taskiq_admin_token: str = ""
 
+    # --- Chat (POST /chat, live in the gateway process) ---
+    # Shorter than agent_llm_timeout — an interactive chat turn shouldn't hold a
+    # browser tab open for minutes the way a research run can.
+    chat_llm_timeout: float = 60.0
+
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps
     # pydantic-settings from JSON-parsing the env value so the validator
