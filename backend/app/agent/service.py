@@ -8,6 +8,7 @@ LangGraph run progresses. Multi-line SQL lives in ``app/agent/sql/``.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -184,22 +185,33 @@ async def get_run_internal(pool: asyncpg.Pool, run_id: UUID) -> AgentRunMeta:
     )
 
 
+def _load_urls(raw: Any) -> list[str]:
+    """Parse the ``source_urls`` JSONB column (asyncpg hands it back as ``str``;
+    tests pass a list directly)."""
+    if raw is None:
+        return []
+    return json.loads(raw) if isinstance(raw, str) else list(raw)
+
+
 @dataclass(frozen=True, slots=True)
 class ParkedRun:
-    """What an approved run resumes from: the drafts to commit + the research
-    phase's partial result (analysis + skipped notes)."""
+    """What an approved run resumes from: the drafts to commit, the research
+    phase's partial result (analysis + skipped notes), and the URLs it
+    fetched (so the commit phase can re-attach sources)."""
 
     drafts: StructuredResult
     partial: AgentRunResult | None
+    source_urls: list[str]
 
 
 async def load_parked(pool: asyncpg.Pool, run_id: UUID) -> ParkedRun:
     row = await pool.fetchrow(sql("get_pending"), run_id)
     if row is None:
-        return ParkedRun(StructuredResult(), None)
+        return ParkedRun(StructuredResult(), None, [])
     return ParkedRun(
         drafts=_load(row["pending"], StructuredResult) or StructuredResult(),
         partial=_load(row["result"], AgentRunResult),
+        source_urls=_load_urls(row["source_urls"]),
     )
 
 
@@ -208,10 +220,18 @@ async def mark_running(pool: asyncpg.Pool, run_id: UUID) -> None:
 
 
 async def mark_awaiting_review(
-    pool: asyncpg.Pool, run_id: UUID, pending: StructuredResult, partial: AgentRunResult
+    pool: asyncpg.Pool,
+    run_id: UUID,
+    pending: StructuredResult,
+    partial: AgentRunResult,
+    source_urls: list[str],
 ) -> None:
     await pool.execute(
-        sql("mark_awaiting_review"), run_id, pending.model_dump_json(), partial.model_dump_json()
+        sql("mark_awaiting_review"),
+        run_id,
+        pending.model_dump_json(),
+        partial.model_dump_json(),
+        json.dumps(source_urls),
     )
 
 

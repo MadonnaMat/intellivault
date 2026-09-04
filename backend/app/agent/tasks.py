@@ -25,6 +25,7 @@ import asyncpg
 
 from app.agent import service
 from app.agent.broker import broker
+from app.agent.fetch import FetchedDoc
 from app.agent.graph_state import AgentState, initial_state
 from app.agent.schemas import AgentRunResult, StructuredResult
 
@@ -97,8 +98,11 @@ async def _run_agent(run_id: str, infra: WorkerInfra) -> None:
     if review:
         drafts = state["structured"] or StructuredResult()
         # park the partial result too (analysis + skipped) so the commit phase
-        # can restore it — otherwise an approved run finishes with an empty analysis
-        await service.mark_awaiting_review(pool, rid, drafts, _result(state))
+        # can restore it — otherwise an approved run finishes with an empty
+        # analysis — and the fetched URLs, so the commit phase can re-attach
+        # sources (otherwise attach_sources silently never runs on this path).
+        source_urls = [doc.url for doc in state["documents"]]
+        await service.mark_awaiting_review(pool, rid, drafts, _result(state), source_urls)
         return
     await _finish_succeeded(pool, rid, state)
 
@@ -118,6 +122,9 @@ async def _commit_agent_run(run_id: str, infra: WorkerInfra) -> None:
     if parked.partial is not None:  # restore the research phase's analysis + notes
         state["analysis"] = parked.partial.analysis
         state["skipped"] = list(parked.partial.skipped)
+    # commit_node only reads .url off each document (see commit.py) — a bare
+    # url is enough to restore attach_sources without re-persisting page text.
+    state["documents"] = [FetchedDoc(url=u, text="") for u in parked.source_urls]
 
     async def _commit() -> None:
         state.update(await commit_node(state, deps=deps))  # type: ignore[typeddict-item]

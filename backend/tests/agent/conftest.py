@@ -301,6 +301,7 @@ def make_run_row(**overrides: Any) -> Row:
         "plan": None,
         "result": None,
         "pending": None,
+        "source_urls": "[]",
         "committed_entity_ids": [],
         "committed_relationship_ids": [],
         "error": None,

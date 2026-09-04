@@ -10,7 +10,14 @@ import pytest
 from fastapi import HTTPException
 
 from app.agent import service
-from app.agent.schemas import AgentRunCreate, AgentRunResult, AgentRunReview, Plan
+from app.agent.schemas import (
+    AgentRunCreate,
+    AgentRunResult,
+    AgentRunReview,
+    DraftEntity,
+    Plan,
+    StructuredResult,
+)
 from tests.agent.conftest import FakePool, as_pool, find_call, make_run_row
 
 
@@ -180,6 +187,23 @@ async def test_submit_review_404_when_missing() -> None:
     assert exc.value.status_code == 404
 
 
+async def test_mark_awaiting_review_parks_drafts_result_and_source_urls() -> None:
+    run_id = uuid4()
+    pool = FakePool()
+    drafts = StructuredResult(entities=[DraftEntity(temp_id="e1", name="P", kind="n")])
+    result = AgentRunResult(analysis="a", entities_created=0, relationships_created=0)
+
+    await service.mark_awaiting_review(
+        as_pool(pool), run_id, drafts, result, ["https://example.com/x"]
+    )
+
+    _q, args = find_call(pool, "status = 'awaiting_review'")
+    assert args[0] == run_id
+    assert json.loads(args[1])["entities"][0]["name"] == "P"
+    assert json.loads(args[2])["analysis"] == "a"
+    assert json.loads(args[3]) == ["https://example.com/x"]
+
+
 async def test_load_parked_parses_drafts_and_partial_result() -> None:
     row = make_run_row(
         pending=json.dumps({"entities": [{"temp_id": "e1", "name": "P", "kind": "n"}]}),
@@ -191,17 +215,20 @@ async def test_load_parked_parses_drafts_and_partial_result() -> None:
                 "skipped": ["fetch: x"],
             }
         ),
+        source_urls=json.dumps(["https://example.com/x"]),
     )
     parked = await service.load_parked(as_pool(FakePool(fetchrow=row)), uuid4())
     assert parked.drafts.entities[0].name == "P"
     assert parked.partial is not None
     assert parked.partial.analysis == "found things"
     assert parked.partial.skipped == ["fetch: x"]
+    assert parked.source_urls == ["https://example.com/x"]
 
 
 async def test_load_parked_tolerates_a_missing_row() -> None:
     parked = await service.load_parked(as_pool(FakePool(fetchrow=None)), uuid4())
     assert parked.drafts.entities == [] and parked.partial is None
+    assert parked.source_urls == []
 
 
 async def test_stream_run_emits_one_event_per_change_then_stops(

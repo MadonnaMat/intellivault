@@ -109,6 +109,7 @@ async def test_run_agent_parks_drafts_for_review_instead_of_committing() -> None
     assert json.loads(args[1]) == {"entities": [], "relationships": []}
     # the research phase's partial result is parked too (analysis + skipped)
     assert json.loads(args[2])["analysis"] == "(no sources were analysed)"
+    assert json.loads(args[3]) == []  # no sources fetched -> nothing parked to attach later
 
 
 async def test_commit_agent_run_commits_the_parked_drafts_and_keeps_the_analysis() -> None:
@@ -122,10 +123,15 @@ async def test_commit_agent_run_commits_the_parked_drafts_and_keeps_the_analysis
         "relationships_created": 0,
         "skipped": ["fetch: dead-link"],
     }
-    parked = {"pending": json.dumps(drafts), "result": json.dumps(partial)}
+    parked = {
+        "pending": json.dumps(drafts),
+        "result": json.dumps(partial),
+        "source_urls": json.dumps(["https://example.com/transistor"]),
+    }
     pool = FakePool(fetchrow=[_meta_row(), parked])
+    driver = FakeNeo4jDriver([node_row("Bell Labs")], [{"id": "ok"}])
     infra = fake_infra(
-        driver=FakeNeo4jDriver([node_row("Bell Labs")], [{"id": "ok"}]),
+        driver=driver,
         pool=pool,
         chat_model=_empty_run_chat(),
         settings=_REVIEW_SETTINGS,
@@ -138,6 +144,9 @@ async def test_commit_agent_run_commits_the_parked_drafts_and_keeps_the_analysis
     assert final["entities_created"] == 1
     assert final["analysis"] == "the transistor story"  # restored from the parked result
     assert "fetch: dead-link" in final["skipped"]  # research-phase notes kept
+    # the parked source_urls made it back onto the committed entity
+    attach = [p for q, p in driver.calls if "SOURCED_FROM" in q][0]
+    assert attach["urls"] == ["https://example.com/transistor"]
 
 
 async def test_commit_agent_run_marks_failed_and_reraises_when_commit_blows_up() -> None:
@@ -145,7 +154,7 @@ async def test_commit_agent_run_marks_failed_and_reraises_when_commit_blows_up()
         "entities": [{"temp_id": "e1", "name": "X", "kind": "org"}],
         "relationships": [],
     }
-    parked = {"pending": json.dumps(drafts), "result": None}
+    parked = {"pending": json.dumps(drafts), "result": None, "source_urls": json.dumps([])}
     pool = FakePool(fetchrow=[_meta_row(), parked])
     # no create_entity result rows -> commit_node's service call raises IndexError
     infra = fake_infra(driver=FakeNeo4jDriver(), pool=pool, settings=_REVIEW_SETTINGS)
