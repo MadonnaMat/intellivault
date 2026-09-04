@@ -35,6 +35,15 @@ def test_redis_broker_uses_a_blocking_read_timeout() -> None:
     assert conn.socket_connect_timeout == 15
 
 
+def test_redis_broker_has_a_result_backend() -> None:
+    """search_knowledge_graph_task's .wait_result() needs somewhere to poll —
+    see app.chat.graph_search."""
+    from taskiq_redis import RedisAsyncResultBackend
+
+    broker = build_broker(_settings(REDIS_URL="redis://redis:6379/0"))
+    assert isinstance(broker.result_backend, RedisAsyncResultBackend)
+
+
 def _admin_middlewares(broker: object) -> list[object]:
     from taskiq.middlewares.taskiq_admin_middleware import TaskiqAdminMiddleware
 
@@ -122,8 +131,10 @@ class _Span:
 class _Tracer:
     def __init__(self) -> None:
         self.span = _Span()
+        self.opened: list[tuple[str, dict[str, Any]]] = []
 
-    def start_span(self, _name: str, attributes: dict[str, Any] | None = None) -> _Span:
+    def start_span(self, name: str, attributes: dict[str, Any] | None = None) -> _Span:
+        self.opened.append((name, attributes or {}))
         return self.span
 
 
@@ -145,6 +156,8 @@ class _Provider:
 class _Msg:
     task_id = "t1"
     task_name = "run_agent"
+    args: tuple[Any, ...] = ("run-1",)
+    kwargs: dict[str, Any] = {}
 
 
 def _middleware(provider: Any) -> AgentRunSpanMiddleware:
@@ -190,3 +203,59 @@ def test_span_middleware_records_an_error() -> None:
     mw.on_error(_Msg(), object(), boom)  # type: ignore[arg-type]
     assert provider.tracer.span.exceptions == [boom]
     assert provider.tracer.span.attrs["error"] is True
+
+
+def test_span_is_named_for_the_task_not_a_blanket_agent_run() -> None:
+    from openinference.semconv.trace import SpanAttributes
+
+    provider = _Provider()
+    mw = _middleware(provider)
+
+    class _SearchMsg(_Msg):
+        task_name = "search_knowledge_graph_task"
+        args = ("owner-1", "transistor", 5)
+
+    mw.pre_execute(_SearchMsg())  # type: ignore[arg-type]
+
+    name, attributes = provider.tracer.opened[0]
+    assert name == "search_knowledge_graph_task"
+    assert attributes[SpanAttributes.OPENINFERENCE_SPAN_KIND] == "CHAIN"
+    assert '"transistor"' in attributes[SpanAttributes.METADATA]
+
+
+def test_run_agent_span_kind_is_agent() -> None:
+    from openinference.semconv.trace import SpanAttributes
+
+    provider = _Provider()
+    mw = _middleware(provider)
+    mw.pre_execute(_Msg())  # type: ignore[arg-type]
+
+    name, attributes = provider.tracer.opened[0]
+    assert name == "run_agent"
+    assert attributes[SpanAttributes.OPENINFERENCE_SPAN_KIND] == "AGENT"
+
+
+def test_post_execute_captures_the_return_value_as_output() -> None:
+    from openinference.semconv.trace import SpanAttributes
+
+    provider = _Provider()
+    mw = _middleware(provider)
+    mw.pre_execute(_Msg())  # type: ignore[arg-type]
+    result = type("R", (), {"is_err": False, "return_value": {"entities": ["Bell Labs"]}})()
+
+    mw.post_execute(_Msg(), result)  # type: ignore[arg-type]
+
+    assert '"Bell Labs"' in provider.tracer.span.attrs[SpanAttributes.OUTPUT_VALUE]
+
+
+def test_post_execute_skips_output_when_return_value_is_none() -> None:
+    provider = _Provider()
+    mw = _middleware(provider)
+    mw.pre_execute(_Msg())  # type: ignore[arg-type]
+    result = type("R", (), {"is_err": False, "return_value": None})()
+
+    mw.post_execute(_Msg(), result)  # type: ignore[arg-type]
+
+    from openinference.semconv.trace import SpanAttributes
+
+    assert SpanAttributes.OUTPUT_VALUE not in provider.tracer.span.attrs
