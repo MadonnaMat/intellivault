@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     # is 3 sequential MCP round trips, so an unbounded list (e.g. "every actor
     # in <show>") can grind for many minutes.
     agent_lookup_max_entities: int = 20
+    # Pause between entities in the `lookup` node's Wikipedia enrichment loop —
+    # a broad topic's ~agent_lookup_max_entities distinct articles otherwise
+    # fire back-to-back and can trip Wikipedia's public API rate limit
+    # (observed: 429s cascading through a whole run's worth of lookups).
+    agent_lookup_pace_seconds: float = 0.3
     # Cap on entities from the caller's visible graph fed to the LLM as context
     # (ranked by relevance to the topic, then recency) — the whole graph would
     # blow a small model's context and grows unbounded with the public graph.
