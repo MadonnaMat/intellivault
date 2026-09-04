@@ -178,6 +178,28 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
         entity.owner_id === user.id ? <Tag color="blue">you</Tag> : <Tag>shared</Tag>,
     },
     {
+      title: "Sources",
+      key: "sources",
+      render: (_: unknown, entity: GraphEntity) =>
+        entity.sources?.length ? (
+          <Space direction="vertical" size="small">
+            {entity.sources.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={`entity-${entity.id}-source`}
+              >
+                {url}
+              </a>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
+    },
+    {
       title: "Change visibility",
       key: "actions",
       render: (_: unknown, entity: GraphEntity) => {
