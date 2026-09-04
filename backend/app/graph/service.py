@@ -191,7 +191,7 @@ async def search_entities_by_vector(
         embedding=embedding,
         k=k,
     )
-    return [_entity(row["e"]) for row in rows]
+    return [_entity(row["e"], row.get("sources")) for row in rows]
 
 
 async def list_visible_relationships_among(

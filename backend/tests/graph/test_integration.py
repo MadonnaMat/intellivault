@@ -395,6 +395,17 @@ async def test_vector_search_respects_the_visibility_predicate(graph_driver: Asy
     assert bob_hits == {"bob-priv", "alice-pub"}  # never alice-priv
 
 
+async def test_vector_search_includes_sources(graph_driver: AsyncDriver) -> None:
+    entity = await service.create_entity(graph_driver, _ALICE, EntityInput(name="x", kind="n"))
+    await service.attach_sources(graph_driver, _ALICE, str(entity.id), ["https://example.com/x"])
+    vec = [0.1] * 768
+    await service.set_entity_embedding(graph_driver, _ALICE, str(entity.id), vec)
+
+    (hit,) = await service.search_entities_by_vector(graph_driver, _ALICE, vec, k=10)
+
+    assert hit.sources == ["https://example.com/x"]
+
+
 async def test_set_entity_embedding_rejects_a_foreign_entity(graph_driver: AsyncDriver) -> None:
     alice_pub = await service.create_entity(
         graph_driver, _ALICE, EntityInput(name="x", kind="n", visibility="public")

@@ -366,11 +366,12 @@ async def test_set_entity_embedding_404_when_not_owned() -> None:
 
 
 async def test_search_entities_by_vector_maps_nodes_and_passes_k() -> None:
-    driver = FakeNeo4jDriver([{"e": _NODE, "score": 0.9}])
+    driver = FakeNeo4jDriver([{"e": _NODE, "score": 0.9, "sources": ["https://a.example/x"]}])
     results = await service.search_entities_by_vector(
         cast(AsyncDriver, driver), _OWNER, [0.1, 0.2], k=5
     )
 
     assert [e.name for e in results] == ["Acme"]
+    assert results[0].sources == ["https://a.example/x"]
     _query, params = driver.calls[0]
     assert params == {"owner_id": _OWNER, "embedding": [0.1, 0.2], "k": 5}
