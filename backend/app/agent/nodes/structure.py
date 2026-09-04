@@ -8,6 +8,7 @@ output is recorded and an empty result returned so the run still succeeds.
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -34,6 +35,27 @@ def _dedupe_against_existing(
     return result.model_copy(update={"entities": entities})
 
 
+def _prune_dangling_edges(result: StructuredResult) -> tuple[StructuredResult, int]:
+    """Drop relationships whose endpoints aren't a drafted entity (temp_id or its
+    resolved ``existing_id``) — a weak model sometimes returns a wall of edges
+    referencing entities it never listed. A bare UUID is left in (a direct
+    reference to an existing node); commit_node turns a real miss into a skip."""
+    known = {e.temp_id for e in result.entities}
+    known |= {str(e.existing_id) for e in result.entities if e.existing_id is not None}
+
+    def _ok(ref: str) -> bool:
+        if ref in known:
+            return True
+        try:
+            UUID(ref)
+        except ValueError:
+            return False
+        return True
+
+    kept = [r for r in result.relationships if _ok(r.from_ref) and _ok(r.to_ref)]
+    return result.model_copy(update={"relationships": kept}), len(result.relationships) - len(kept)
+
+
 async def structure_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
     skipped = list(state["skipped"])
     revision = (
@@ -56,8 +78,12 @@ async def structure_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any
     except StructuredOutputError as exc:
         skipped.append(f"structure: {exc}")
         return {"structured": StructuredResult(), "skipped": skipped}
+    result = _dedupe_against_existing(result, state["existing_graph"])
+    result, dropped = _prune_dangling_edges(result)
+    if dropped:
+        skipped.append(f"structure: dropped {dropped} relationship(s) with no matching entity")
     return {
-        "structured": _dedupe_against_existing(result, state["existing_graph"]),
+        "structured": result,
         "skipped": skipped,
     }
 

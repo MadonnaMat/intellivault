@@ -179,3 +179,8 @@ async def test_fetch_text_raises_on_http_error() -> None:
 def test_build_http_client_does_not_auto_follow_redirects() -> None:
     client = fetch.build_http_client(_SETTINGS)
     assert client.follow_redirects is False
+
+
+def test_build_http_client_sends_a_browser_user_agent() -> None:
+    client = fetch.build_http_client(_SETTINGS)
+    assert "Mozilla/5.0" in client.headers["user-agent"]  # not an obvious bot -> no 403s

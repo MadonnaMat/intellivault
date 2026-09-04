@@ -44,6 +44,27 @@ async def test_survives_unparseable_output() -> None:
     assert any(note.startswith("structure:") for note in out["skipped"])
 
 
+async def test_prunes_relationships_that_reference_a_missing_entity() -> None:
+    chat = FakeChatModel(
+        structured={
+            "StructuredResult": [
+                {
+                    "entities": [{"temp_id": "e1", "name": "A", "kind": "org"}],
+                    "relationships": [
+                        {"from_ref": "e1", "to_ref": "e2", "kind": "x"},  # e2 not listed
+                        {"from_ref": "99", "to_ref": "100", "kind": "y"},  # neither listed
+                    ],
+                }
+            ]
+        }
+    )
+    out = await structure_node(
+        make_state(), deps=fake_deps(driver=FakeNeo4jDriver(), chat_model=chat)
+    )
+    assert out["structured"].relationships == []
+    assert any("dropped 2 relationship" in n for n in out["skipped"])
+
+
 _DRAFT = {
     "entities": [{"temp_id": "e1", "name": "Bell Labs", "kind": "org"}],
     "relationships": [],

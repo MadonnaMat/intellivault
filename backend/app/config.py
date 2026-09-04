@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     agent_fetch_max_redirects: int = 3
     agent_fetch_max_bytes: int = 2_000_000
     agent_source_char_limit: int = 12_000
+    # A bot User-Agent gets 403'd by Wikipedia / Fandom / many news sites, which
+    # starves the analysis of real sources — send a browser-like one.
+    agent_fetch_user_agent: str = (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    )
     # The web-search MCP server (SearXNG, streamable-HTTP). Named *_search_* so
     # each MCP server gets its own setting. Native dev points at a locally-run
     # container; compose overrides these to the in-network services.

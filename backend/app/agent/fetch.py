@@ -41,12 +41,21 @@ class SsrfError(ValueError):
 
 
 def build_http_client(settings: Settings) -> httpx.AsyncClient:
-    """The worker's outbound client for source fetches — redirects handled by us."""
+    """The worker's outbound client for source fetches — redirects handled by us.
+
+    A browser-like User-Agent by default: Wikipedia, Fandom/Cloudflare and many
+    news sites return 403 to an obvious bot UA, which starved the analysis of
+    real sources.
+    """
     return httpx.AsyncClient(
         follow_redirects=False,
         timeout=settings.agent_fetch_timeout,
         limits=httpx.Limits(max_connections=10),
-        headers={"user-agent": "IntelliVault-Agent/0.1"},
+        headers={
+            "user-agent": settings.agent_fetch_user_agent,
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "accept-language": "en-US,en;q=0.9",
+        },
     )
 
 
