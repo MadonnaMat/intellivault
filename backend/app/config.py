@@ -28,6 +28,11 @@ class Settings(BaseSettings):
 
     service_name: str = "intellivault-backend"
 
+    # Serve /docs, /redoc, /openapi.json and the Scalar API explorer at /scalar.
+    # Same-origin, so /scalar's "try it out" carries the iv_session cookie. Set
+    # false in production to close the interactive surface.
+    docs_enabled: bool = True
+
     # --- Neo4j ---
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"
@@ -52,6 +57,68 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"
     ollama_embed_model: str = "nomic-embed-text"
     ollama_chat_model: str = "qwen3:8b"
+
+    # --- Agent loop (Redis-backed taskiq queue; the worker runs as its own
+    # process — see app/agent/). "memory://" swaps in taskiq's InMemoryBroker
+    # for tests / offline dev. ---
+    redis_url: str = "redis://localhost:6379/0"
+    # Source fetching (agent/fetch.py). Every URL + redirect hop is resolved and
+    # checked against private/loopback/link-local address space before connecting.
+    agent_fetch_timeout: float = 10.0
+    agent_fetch_max_redirects: int = 3
+    agent_fetch_max_bytes: int = 2_000_000
+    agent_source_char_limit: int = 12_000
+    # Wikimedia (and others) 403 both an obvious bot UA *and* a generic browser
+    # string — their policy (w.wiki/4wJS) wants a descriptive UA with a contact
+    # URL. Override per deployment with a real contact.
+    agent_fetch_user_agent: str = (
+        "IntelliVault-Agent/0.1 (+https://github.com/MadonnaMat/intellivault) python-httpx"
+    )
+    # The web-search MCP server (SearXNG, streamable-HTTP). Named *_search_* so
+    # each MCP server gets its own setting. Native dev points at a locally-run
+    # container; compose overrides these to the in-network services.
+    agent_search_mcp_url: str = "http://localhost:8770/mcp"
+    # The Wikipedia MCP server — authoritative entity summaries + related topics,
+    # used by the `lookup` node to enrich the drafted entities.
+    agent_wikipedia_mcp_url: str = "http://localhost:8771/mcp"
+    # Passed to ChatOllama — 0.0 keeps structure/plan extraction deterministic.
+    agent_llm_temperature: float = 0.0
+    # Per-call timeouts so a hung model / MCP server can't stall a run forever,
+    # and an overall per-run deadline enforced by the worker. All in seconds.
+    agent_llm_timeout: float = 240.0
+    agent_mcp_timeout: float = 30.0
+    agent_run_timeout: float = 2400.0
+    # Passed to ChatOllama as `reasoning` — False disables a thinking model's
+    # (qwen3, deepseek-r1) `<think>` block, which roughly halves latency on a
+    # local model at a small quality cost. Set true if the box is fast.
+    agent_llm_reasoning: bool = False
+    # Cap on source pages a single run fetches (across all its search queries).
+    agent_max_sources: int = 5
+    # Cap on draft entities the `lookup` node enriches from Wikipedia — each one
+    # is 3 sequential MCP round trips, so an unbounded list (e.g. "every actor
+    # in <show>") can grind for many minutes.
+    agent_lookup_max_entities: int = 20
+    # Cap on entities from the caller's visible graph fed to the LLM as context
+    # (ranked by relevance to the topic, then recency) — the whole graph would
+    # blow a small model's context and grows unbounded with the public graph.
+    agent_survey_max_entities: int = 150
+    # Runs the worker processes concurrently (taskiq `--max-async-tasks`).
+    agent_worker_concurrency: int = 4
+    # Bounded LangGraph cycles: how many times `broaden_queries` may re-search
+    # when a round finds nothing, and how many times `critique` may bounce a
+    # weak draft back to `structure`.
+    agent_search_retries: int = 1
+    agent_critique_retries: int = 1
+    # When true, a run pauses after `lookup` at status=awaiting_review; the
+    # drafted entities are only committed once POST /agent/runs/{id}/review
+    # approves them.
+    agent_review_required: bool = False
+    # taskiq-admin dashboard (optional): when `taskiq_admin_url` is set, the
+    # broker reports every task's lifecycle (queued / started / finished / error)
+    # to it. Empty (the default) = no reporting. The token must match the
+    # dashboard container's TASKIQ_ADMIN_API_TOKEN.
+    taskiq_admin_url: str = ""
+    taskiq_admin_token: str = ""
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

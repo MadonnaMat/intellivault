@@ -17,6 +17,15 @@ dependencies = [
     "opentelemetry-instrumentation-httpx>=0.48b0",
     "webauthn>=3.0.0",
     "pydantic[email]>=2.13.5",
+    "taskiq>=0.12",
+    "taskiq-redis>=1.2",
+    "langchain-core>=1.6",
+    "langchain-ollama>=1.0",
+    "langchain-mcp-adapters>=0.1",
+    "openinference-instrumentation-langchain>=0.1.70",
+    "langgraph>=1.2",
+    "scalar-fastapi>=1.9",
+    "trafilatura>=2.0",
 ]
 
 [dependency-groups]

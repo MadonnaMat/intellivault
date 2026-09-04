@@ -21,7 +21,9 @@ _SCHEMA_NAMES = {
     "entity_owner_visibility",
     "related_to_id",
     "related_to_owner_visibility",
+    "entity_embedding",
 }
+_MIGRATION_IDS = ["0001.entity-and-relationship-schema", "0002.entity-vector-index"]
 
 
 async def _schema_names(driver: AsyncDriver) -> set[str]:
@@ -32,23 +34,19 @@ async def _schema_names(driver: AsyncDriver) -> set[str]:
 
 
 async def test_apply_is_idempotent_and_registered(graph_driver: AsyncDriver) -> None:
-    # conftest's graph_driver already applied 0001.
+    # conftest's graph_driver already applied every migration.
     assert await apply_graph_migrations(graph_driver) == []
 
     assert await _schema_names(graph_driver) >= _SCHEMA_NAMES
-    assert await graph_migration_status(graph_driver) == [
-        ("0001.entity-and-relationship-schema", True)
-    ]
+    assert await graph_migration_status(graph_driver) == [(mid, True) for mid in _MIGRATION_IDS]
 
 
 async def test_rollback_then_reapply(graph_driver: AsyncDriver) -> None:
     undone = await rollback_graph_migrations(graph_driver)
-    assert undone == ["0001.entity-and-relationship-schema"]
+    assert undone == list(reversed(_MIGRATION_IDS))
     assert _SCHEMA_NAMES.isdisjoint(await _schema_names(graph_driver))
-    assert await graph_migration_status(graph_driver) == [
-        ("0001.entity-and-relationship-schema", False)
-    ]
+    assert await graph_migration_status(graph_driver) == [(mid, False) for mid in _MIGRATION_IDS]
 
     reapplied = await apply_graph_migrations(graph_driver)
-    assert reapplied == ["0001.entity-and-relationship-schema"]
+    assert reapplied == _MIGRATION_IDS
     assert await _schema_names(graph_driver) >= _SCHEMA_NAMES

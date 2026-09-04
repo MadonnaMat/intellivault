@@ -30,3 +30,8 @@ blob-report/
 # --- Editor / OS ---
 .DS_Store
 *.swp
+
+# --- Local scratch (agent test session tokens) ---
+.pwtest
+.t2
+.agent-test-token

@@ -98,6 +98,23 @@ async def test_list_graph_passes_owner_and_maps_entities_and_edges() -> None:
     assert driver.calls[1][1] == {"owner_id": _OWNER}
 
 
+async def test_list_visible_relationships_among_passes_ids_and_owner() -> None:
+    driver = FakeNeo4jDriver([{"r": _REL, "from_id": _FROM, "to_id": _TO}])
+    ids = [str(_FROM), str(_TO)]
+
+    rels = await service.list_visible_relationships_among(cast(AsyncDriver, driver), _OWNER, ids)
+
+    assert [r.kind for r in rels] == ["employs"]
+    assert driver.calls[0][1] == {"owner_id": _OWNER, "ids": ids}
+
+
+async def test_list_visible_relationships_among_short_circuits_on_no_ids() -> None:
+    driver = FakeNeo4jDriver([])
+    rels = await service.list_visible_relationships_among(cast(AsyncDriver, driver), _OWNER, [])
+    assert rels == []
+    assert driver.calls == []
+
+
 async def test_create_relationship_serialises_and_maps() -> None:
     driver = FakeNeo4jDriver([{"r": _REL, "from_id": _FROM, "to_id": _TO}])
 
@@ -248,3 +265,32 @@ async def test_change_visibility_cascade_404_when_start_not_owned() -> None:
         )
 
     assert exc.value.status_code == 404
+
+
+async def test_set_entity_embedding_sends_owner_scoped_params() -> None:
+    entity_id = str(uuid4())
+    driver = FakeNeo4jDriver([{"id": entity_id}])
+    vec = [0.1, 0.2, 0.3]
+    await service.set_entity_embedding(cast(AsyncDriver, driver), _OWNER, entity_id, vec)
+
+    query, params = driver.calls[0]
+    assert "SET e.embedding = $embedding" in query
+    assert params == {"id": entity_id, "owner_id": _OWNER, "embedding": vec}
+
+
+async def test_set_entity_embedding_404_when_not_owned() -> None:
+    driver = FakeNeo4jDriver([])  # nothing matched the owner-scoped pattern
+    with pytest.raises(HTTPException) as exc:
+        await service.set_entity_embedding(cast(AsyncDriver, driver), _OWNER, str(uuid4()), [0.0])
+    assert exc.value.status_code == 404
+
+
+async def test_search_entities_by_vector_maps_nodes_and_passes_k() -> None:
+    driver = FakeNeo4jDriver([{"e": _NODE, "score": 0.9}])
+    results = await service.search_entities_by_vector(
+        cast(AsyncDriver, driver), _OWNER, [0.1, 0.2], k=5
+    )
+
+    assert [e.name for e in results] == ["Acme"]
+    _query, params = driver.calls[0]
+    assert params == {"owner_id": _OWNER, "embedding": [0.1, 0.2], "k": 5}

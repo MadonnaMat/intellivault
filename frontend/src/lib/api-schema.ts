@@ -4,6 +4,61 @@
  */
 
 export interface paths {
+    "/agent/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Runs */
+        get: operations["list_runs_agent_runs_get"];
+        put?: never;
+        /** Create Run */
+        post: operations["create_run_agent_runs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run_agent_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent/runs/{run_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Review Run
+         * @description Approve (optionally editing the drafts) or reject a run awaiting review.
+         */
+        post: operations["review_run_agent_runs__run_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/credentials": {
         parameters: {
             query?: never;
@@ -334,6 +389,113 @@ export interface components {
             name: string;
         };
         /**
+         * AgentRun
+         * @description A single run in full, including in-flight progress.
+         */
+        AgentRun: {
+            /** Committed Entity Ids */
+            committed_entity_ids?: string[];
+            /** Committed Relationship Ids */
+            committed_relationship_ids?: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Current Node */
+            current_node?: string | null;
+            /** Error */
+            error?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            pending?: components["schemas"]["StructuredResult"] | null;
+            plan?: components["schemas"]["Plan"] | null;
+            result?: components["schemas"]["AgentRunResult"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "awaiting_review" | "succeeded" | "failed" | "cancelled";
+            /** Topic */
+            topic: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * AgentRunCreate
+         * @description Kick off a run: a research topic the agent turns into private graph nodes.
+         */
+        AgentRunCreate: {
+            /** Topic */
+            topic: string;
+        };
+        /**
+         * AgentRunResult
+         * @description The finished run's summary, stored on the row and returned to the caller.
+         */
+        AgentRunResult: {
+            /** Analysis */
+            analysis: string;
+            /** Entities Created */
+            entities_created: number;
+            /** Relationships Created */
+            relationships_created: number;
+            /** Skipped */
+            skipped?: string[];
+        };
+        /**
+         * AgentRunReview
+         * @description Approve or reject the drafted entities of a run awaiting review.
+         *
+         *     ``entities`` / ``relationships`` override the draft when approving (edit
+         *     before commit); omit them to commit the draft as-is.
+         */
+        AgentRunReview: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Entities */
+            entities?: components["schemas"]["DraftEntity"][] | null;
+            /** Relationships */
+            relationships?: components["schemas"]["DraftRelationship"][] | null;
+        };
+        /**
+         * AgentRunSummary
+         * @description One run in the list view.
+         */
+        AgentRunSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "awaiting_review" | "succeeded" | "failed" | "cancelled";
+            /** Topic */
+            topic: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
          * CredentialSummary
          * @description One registered passkey, as shown on the account page.
          */
@@ -354,6 +516,36 @@ export interface components {
             name: string;
             /** Transports */
             transports: string[];
+        };
+        /**
+         * DraftEntity
+         * @description A structure-node candidate. ``existing_id`` set ⇒ link, don't create.
+         */
+        DraftEntity: {
+            /** Attributes */
+            attributes?: {
+                [key: string]: unknown;
+            };
+            /** Existing Id */
+            existing_id?: string | null;
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+            /** Temp Id */
+            temp_id: string;
+        };
+        /**
+         * DraftRelationship
+         * @description An edge between two drafts (``from_ref``/``to_ref`` = a temp_id or a UUID).
+         */
+        DraftRelationship: {
+            /** From Ref */
+            from_ref: string;
+            /** Kind */
+            kind: string;
+            /** To Ref */
+            to_ref: string;
         };
         /**
          * Entity
@@ -441,6 +633,16 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "degraded" | "down";
+        };
+        /**
+         * Plan
+         * @description The plan node's output — a short framing plus the web-search queries.
+         */
+        Plan: {
+            /** Queries */
+            queries: string[];
+            /** Summary */
+            summary: string;
         };
         /** RegisterBeginRequest */
         RegisterBeginRequest: {
@@ -558,6 +760,13 @@ export interface components {
              */
             id: string;
         };
+        /** StructuredResult */
+        StructuredResult: {
+            /** Entities */
+            entities?: components["schemas"]["DraftEntity"][];
+            /** Relationships */
+            relationships?: components["schemas"]["DraftRelationship"][];
+        };
         /** UpdateAccountRequest */
         UpdateAccountRequest: {
             /** Display Name */
@@ -611,6 +820,125 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_runs_agent_runs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRunSummary"][];
+                };
+            };
+        };
+    };
+    create_run_agent_runs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_agent_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_run_agent_runs__run_id__review_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunReview"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_credentials_auth_credentials_get: {
         parameters: {
             query?: never;

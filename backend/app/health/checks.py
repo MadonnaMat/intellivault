@@ -15,6 +15,7 @@ from time import perf_counter
 import asyncpg
 import httpx
 from neo4j import AsyncDriver
+from redis.asyncio import Redis
 
 from app.config import Settings
 from app.schemas import ServiceStatus
@@ -107,6 +108,39 @@ async def _check_ollama(probes: HealthProbes) -> ProbeResult:
     return "embed + chat models present", False
 
 
+async def _check_mcp(probes: HealthProbes, url: str) -> ProbeResult:
+    # An MCP server the agent worker dials. Non-critical to the gateway (only the
+    # worker needs it). A streamable-HTTP endpoint may legitimately answer a bare
+    # GET with a 4xx, so anything < 500 is "reachable".
+    response = await probes.http_client.get(url)
+    if response.status_code >= 500:
+        response.raise_for_status()
+    return f"GET {url} -> {response.status_code}", False
+
+
+async def _check_search_mcp(probes: HealthProbes) -> ProbeResult:
+    return await _check_mcp(probes, probes.settings.agent_search_mcp_url)
+
+
+async def _check_wikipedia_mcp(probes: HealthProbes) -> ProbeResult:
+    return await _check_mcp(probes, probes.settings.agent_wikipedia_mcp_url)
+
+
+async def _check_redis(probes: HealthProbes) -> ProbeResult:
+    # The agent-loop task queue. Non-critical: the gateway serves every read
+    # without it — only POST /agent/runs (enqueue) needs Redis.
+    url = probes.settings.redis_url
+    if not url or url == "memory://":
+        # The in-process broker (tests / offline dev) — nothing to probe.
+        return "in-memory broker (no Redis)", False
+    client: Redis = Redis.from_url(url)
+    try:
+        await client.ping()
+    finally:
+        await client.aclose()
+    return "PING -> PONG", False
+
+
 def _timed_out(name: str, critical: bool) -> ServiceStatus:
     return ServiceStatus(
         name=name,
@@ -130,6 +164,9 @@ async def gather_health(probes: HealthProbes) -> list[ServiceStatus]:
         ("neo4j", lambda: _check_neo4j(probes), True),
         ("phoenix", lambda: _check_phoenix(probes), False),
         ("ollama", lambda: _check_ollama(probes), True),
+        ("redis", lambda: _check_redis(probes), False),
+        ("search-mcp", lambda: _check_search_mcp(probes), False),
+        ("wikipedia-mcp", lambda: _check_wikipedia_mcp(probes), False),
     ]
     tasks = {
         asyncio.ensure_future(_measure(name, probe, critical=critical)): (name, critical)

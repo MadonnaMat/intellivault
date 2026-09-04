@@ -24,10 +24,12 @@ docker compose up -d --build --wait
 
 echo "== Applying database migrations =="
 docker compose run --rm migrate
+docker compose run --rm graph-migrate
 
 echo
 echo "IntelliVault is up:"
 echo "  frontend  http://localhost:${FRONTEND_PORT:-3000}"
 echo "  backend   http://localhost:${BACKEND_PORT:-8000}/health"
+echo "  API       http://localhost:${BACKEND_PORT:-8000}/scalar"
 echo "  Neo4j     http://localhost:${NEO4J_HTTP_PORT:-7474}"
 echo "  Phoenix   http://localhost:${PHOENIX_PORT:-6006}"

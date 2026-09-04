@@ -7,10 +7,12 @@ private data and another. This test fails a new query file that drops a rule.
 Checks run against the **comment-stripped** body, so a rule mentioned only in a
 `//` comment does not count.
 
-  1. Any `.cypher` that MATCHes `:Entity` must bind `owner_id` to `$owner_id`
-     (in a node pattern or a WHERE), and carry a `// SECURITY:` rationale.
-  2. The tenant-visible *reads* (`list_*` / `get_*`) must additionally contain the
-     exact visibility predicate — `visibility = 'public' OR ... owner_id = $owner_id`.
+  1. Any `.cypher` that MATCHes `:Entity` — or reads it out of a vector index via
+     `db.index.vector.queryNodes` — must bind `owner_id` to `$owner_id` (in a
+     node pattern or a WHERE), and carry a `// SECURITY:` rationale.
+  2. The tenant-visible *reads* (`list_*` / `get_*` / `search_*`) must additionally
+     contain the exact visibility predicate —
+     `visibility = 'public' OR ... owner_id = $owner_id`.
 """
 
 from __future__ import annotations
@@ -31,11 +33,15 @@ def _strip_comments(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not line.strip().startswith("//"))
 
 
+def _reads_entities(text: str) -> bool:
+    return ":Entity" in text and ("MATCH" in text or "db.index.vector.queryNodes" in text)
+
+
 def _entity_files() -> list[Path]:
     return [
         path
         for path in sorted(CYPHER_DIR.glob("*.cypher"))
-        if "MATCH" in (text := path.read_text(encoding="utf-8")) and ":Entity" in text
+        if _reads_entities(path.read_text(encoding="utf-8"))
     ]
 
 
@@ -52,7 +58,7 @@ def test_entity_queries_are_owner_scoped(path: Path) -> None:
 
 @pytest.mark.parametrize(
     "path",
-    [p for p in _entity_files() if p.name.startswith(("list_", "get_"))],
+    [p for p in _entity_files() if p.name.startswith(("list_", "get_", "search_"))],
     ids=lambda p: p.name,
 )
 def test_visible_reads_carry_the_full_predicate(path: Path) -> None:

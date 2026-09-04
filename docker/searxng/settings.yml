@@ -1,0 +1,16 @@
+# SearXNG config for the agent's web-search backend.
+# The searxng/searxng image substitutes SEARXNG_SECRET in for "ultrasecretkey".
+use_default_settings: true
+
+server:
+  secret_key: "ultrasecretkey"
+  # Internal service on a trusted compose network — the bot limiter would
+  # otherwise throttle the MCP wrapper's requests.
+  limiter: false
+  image_proxy: false
+
+search:
+  # The MCP wrapper asks for JSON; the default build only enables html.
+  formats:
+    - html
+    - json

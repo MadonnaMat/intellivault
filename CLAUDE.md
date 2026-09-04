@@ -23,16 +23,24 @@ Project-level instructions for Claude Code working in this repository.
   the only thing that starts/stops it or pulls models. This mirrors
   `~/go-rag-lab`.
 - Compose overrides the `localhost` defaults from `.env.example` with in-network
-  hostnames (`postgres`, `neo4j`, `phoenix`) for the `backend` container.
+  hostnames (`postgres`, `neo4j`, `phoenix`, `redis`, `search-mcp`,
+  `wikipedia-mcp`) for the `backend` / `agent-worker` containers. The agent stack
+  adds `redis` (taskiq queue), `searxng` + `search-mcp` (web search MCP),
+  `wikipedia-mcp` (Wikipedia lookup MCP), `taskiq-admin` (job-queue dashboard on
+  `:3300`), and `agent-worker` (the taskiq worker, its own process).
+  `docker-compose.e2e.yml` swaps Ollama + both MCPs for one `mock-ai` container
+  and blanks `TASKIQ_ADMIN_URL` for the Playwright suite.
 - **Config** lives in `backend/app/config.py` (pydantic-settings). Secrets
   (`NEO4J_PASSWORD`, `DATABASE_URL`) are required — no hardcoded defaults. The
   repo-root `.env` (gitignored) feeds native runs; compose injects env directly.
-- **`/health`** (`app/health/`) probes Postgres, Neo4j, Phoenix and Ollama
-  concurrently, each with a 3s timeout, failures captured not raised, and the
-  whole batch bounded by an overall deadline so a stuck probe can't hang it. It
-  aggregates to `ok` / `degraded` / `down` and returns HTTP 503 only when `down`.
-  A failure of a **non-critical** dependency (`ServiceStatus.critical=False`,
-  i.e. Phoenix) or a missing Ollama model is `degraded` — still 200.
+- **`/health`** (`app/health/`) probes Postgres, Neo4j, Phoenix, Ollama, Redis
+  and the search MCP concurrently, each with a 3s timeout, failures captured not
+  raised, and the whole batch bounded by an overall deadline so a stuck probe
+  can't hang it. It aggregates to `ok` / `degraded` / `down` and returns HTTP 503
+  only when `down`. A failure of a **non-critical** dependency
+  (`ServiceStatus.critical=False` — Phoenix, `redis`, `search-mcp`: only the
+  agent worker needs the last two) or a missing Ollama model is `degraded` —
+  still 200.
   `/health/live` is the cheap liveness route for container healthchecks.
 - **Observability** (`app/observability.py`) is best-effort: Phoenix being down
   never blocks start-up. `settings.tracing_enabled=false` disables it (tests).
@@ -81,6 +89,68 @@ Project-level instructions for Claude Code working in this repository.
   concurrently. Frontend `/graph`: tables (with delete) + a per-entity
   visibility `Switch`/cascade `Checkbox` + a Cytoscape.js diagram
   (`next/dynamic`, `ssr:false`) + a "Load sample graph" injector.
+  Graph migration `0002` adds a **`CREATE VECTOR INDEX entity_embedding`** on
+  `:Entity(embedding)` (768-d cosine, sized for `nomic-embed-text`);
+  `service.set_entity_embedding` (owner-scoped) and `service.search_entities_by_vector`
+  (`db.index.vector.queryNodes` + the same visibility predicate) back the agent's
+  survey step; `service.list_visible_relationships_among` fetches just the edges
+  between an id set (the vector survey's bounded alternative to `list_graph`).
+  `test_cypher_predicate.py` also scans `queryNodes` files and treats
+  `search_*` as a tenant-visible read.
+- **Agent** (`app/agent/`) is the research loop: `POST /agent/runs` inserts a
+  durable `agent_runs` row (Postgres) and enqueues a Redis job; a **separate
+  `taskiq worker` process** (`agent-worker` container) runs a LangGraph graph and
+  updates the row per node so `GET /agent/runs/{id}` shows live progress. The
+  graph (`app/agent/graph.py`, nodes in `app/agent/nodes/`) is mostly linear —
+  `plan → survey_graph → search → fetch → analyze → synthesize → structure →
+  critique → lookup → commit → enrich` — with three points of real structure:
+  `search` loops back through `broaden_queries` (bounded by
+  `agent_search_retries`) when a round finds nothing; `fetch` fans out one
+  `analyze_one` per source (`Send`) and `synthesize` folds the per-source notes
+  back in (an `operator.add` reducer on `source_notes`); `critique` bounces a
+  weak draft back to `structure` (bounded by `agent_critique_retries`). `lookup`
+  enriches each draft from the **Wikipedia MCP** (`wikipedia_mcp.py`, `mcp/wikipedia-mcp`
+  compose service); `enrich` cross-links freshly-committed entities into the
+  existing graph via vector search. The worker opens its own `WorkerInfra` (pool
+  / driver / httpx / `ChatOllama` / `OllamaEmbeddings` / the SearXNG `search`
+  tool / the Wikipedia tools) in `WORKER_STARTUP`. **`commit_node` writes only
+  through `app.graph.service`** (`create_entity` / `create_relationship`,
+  `visibility="private"`) — no new Cypher — so every tenant predicate holds; a
+  service 404/422 on an edge goes to the run's `skipped`, never fatal. The batch
+  is **not** atomic — `append_committed_*` records each write as it lands.
+  Every LLM call, MCP call, and the whole run are time-bounded
+  (`agent_llm_timeout` / `agent_mcp_timeout` / `agent_run_timeout`) — a hung
+  model or MCP marks the run `failed`, never stalls it; `lookup` also caps how
+  many entities it enriches (`agent_lookup_max_entities`, 3 MCP calls each).
+  `survey_graph_node` feeds the LLM a *bounded* digest: vector-search the topic
+  (`agent_survey_max_entities` cap), falling back to lexical ranking.
+  `fetch.guard_url` resolves every URL + redirect hop and refuses private /
+  loopback / link-local / unresolvable hosts. **Human review** (`AGENT_REVIEW_REQUIRED`,
+  default false): `build_graph(deps, review=True)` compiles a graph that stops at
+  `lookup`; the run parks its drafts in `agent_runs.pending` at
+  `status=awaiting_review`; `POST /agent/runs/{id}/review` approves (optionally
+  editing the `entities`/`relationships`) → `status=running` + a
+  `commit_agent_run` task running `commit_node` + `enrich_node`, or rejects →
+  `status=cancelled` with nothing written. The gateway process never imports
+  langgraph (`enqueue_run` / `enqueue_commit` import `tasks` lazily;
+  `tests/agent/test_imports.py` guards it). Tests: unit with hand-rolled fakes;
+  `tests/agent/test_integration.py` runs the real graph against `neo4j-test` with
+  Ollama over `respx`; `frontend/e2e/agent.spec.ts` drives the full containerised
+  loop with the **`mock-ai`** container (`docker-compose.e2e.yml`, CopilotKit
+  aimock — chat + MCP; embeddings unmocked, which is fine since embedding is
+  best-effort). Each MCP has its own module (`search_mcp.py` /
+  `AGENT_SEARCH_MCP_*` / compose `search-mcp` — `isokoliuk/mcp-searxng`, HTTP
+  transport via `MCP_HTTP_PORT`, tool `searxng_web_search` asked for compact
+  JSON; `wikipedia_mcp.py` / `AGENT_WIKIPEDIA_MCP_*` / compose `wikipedia-mcp`),
+  sharing `mcp_client.py`. A missing MCP tool disables that step for the run
+  (`search_tool`/`wikipedia_tools` degrade), never crash-loops the worker.
+  Prompts are Markdown under `app/agent/prompts/` (loaded like the SQL).
+  When `settings.taskiq_admin_url` is set, `build_broker` adds
+  `TaskiqAdminMiddleware` so every job's lifecycle (queued / started / finished /
+  errored) shows in the **`taskiq-admin`** dashboard — complementary to Phoenix
+  (LLM/graph spans) and `agent_runs` (the domain record). Interactive API
+  surface: **Scalar at `/scalar`**, gated with `/docs`/`/redoc`/`/openapi.json`
+  behind `settings.docs_enabled` (default true).
 - **Migrations**: Postgres uses the `yoyo` CLI (plain SQL + `.rollback.sql` in
   `backend/migrations/`) — `make migrate` / `docker compose run --rm migrate`.
   Neo4j has no yoyo equivalent, so `app/graph/migrations.py` is a small
@@ -116,7 +186,8 @@ Project-level instructions for Claude Code working in this repository.
 | Command | Does |
 |---------|------|
 | `make up` / `make verify` | bring the stack up / + smoke-check health + SSR |
-| `make e2e` | Playwright browser suite against the full stack |
+| `make e2e` | Playwright browser suite (adds `docker-compose.e2e.yml`: `mock-ai` + `agent-worker`) |
+| `make agent-worker` | run the agent-loop taskiq worker natively (compose runs its own) |
 | `make lint` / `make test` | both sides |
 | `make backend-lint` | ruff check + format, mypy --strict, radon |
 | `make backend-test` | pytest (coverage gate 85%) |

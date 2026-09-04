@@ -33,12 +33,19 @@ def test_split_statements_drops_comments_and_blanks() -> None:
 
 def test_loads_0001_with_its_rollback() -> None:
     migrations = load_graph_migrations()
-    assert [m.id for m in migrations] == ["0001.entity-and-relationship-schema"]
+    assert [m.id for m in migrations] == [
+        "0001.entity-and-relationship-schema",
+        "0002.entity-vector-index",
+    ]
     first = migrations[0]
     assert len(first.statements) == 4
     assert len(first.rollback) == 4
     assert all(s.startswith("CREATE ") for s in first.statements)
     assert all(s.startswith("DROP ") for s in first.rollback)
+
+    vector = migrations[1]
+    assert vector.statements[0].startswith("CREATE VECTOR INDEX entity_embedding")
+    assert vector.rollback == ("DROP INDEX entity_embedding IF EXISTS",)
 
 
 def test_migrations_dir_is_the_repo_directory() -> None:
@@ -125,15 +132,18 @@ async def test_apply_runs_pending_and_records_them() -> None:
     driver = _FakeDriver()
     applied = await apply_graph_migrations(cast(AsyncDriver, driver))
 
-    assert applied == ["0001.entity-and-relationship-schema"]
+    assert applied == ["0001.entity-and-relationship-schema", "0002.entity-vector-index"]
     texts = [t for t, _ in driver.calls]
     assert sum(t.startswith("CREATE CONSTRAINT") for t in texts) == 1
     assert sum(t.startswith("CREATE INDEX") for t in texts) == 3
+    assert sum(t.startswith("CREATE VECTOR INDEX") for t in texts) == 1
     assert any(t.startswith("CREATE (m:_GraphMigration") for t in texts)
 
 
 async def test_apply_skips_already_recorded() -> None:
-    driver = _FakeDriver(applied=["0001.entity-and-relationship-schema"])
+    driver = _FakeDriver(
+        applied=["0001.entity-and-relationship-schema", "0002.entity-vector-index"]
+    )
     applied = await apply_graph_migrations(cast(AsyncDriver, driver))
     assert applied == []
     assert not any(t.startswith("CREATE ") for t, _ in driver.calls)

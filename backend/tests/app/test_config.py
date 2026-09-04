@@ -20,6 +20,8 @@ def test_defaults() -> None:
     assert settings.neo4j_uri == "bolt://localhost:7687"
     assert settings.ollama_chat_model == "qwen3:8b"
     assert settings.cors_origins == ["http://localhost:3000"]
+    assert settings.docs_enabled is True
+    assert _make(DOCS_ENABLED="false").docs_enabled is False
 
 
 def test_webauthn_defaults() -> None:
@@ -41,6 +43,46 @@ def test_webauthn_overrides_from_env() -> None:
     assert settings.webauthn_origin == "https://app.example.com"
     assert settings.session_cookie_secure is True
     assert settings.session_cookie_samesite == "none"
+
+
+def test_agent_defaults() -> None:
+    settings = _make()
+    assert settings.redis_url == "redis://localhost:6379/0"
+    assert settings.agent_fetch_timeout == 10.0
+    assert settings.agent_fetch_max_redirects == 3
+    assert settings.agent_fetch_max_bytes == 2_000_000
+    assert settings.agent_source_char_limit == 12_000
+    assert settings.agent_max_sources == 5
+    assert settings.agent_survey_max_entities == 150
+    assert settings.agent_search_mcp_url == "http://localhost:8770/mcp"
+    assert settings.agent_wikipedia_mcp_url == "http://localhost:8771/mcp"
+    assert settings.agent_worker_concurrency == 4
+    assert settings.agent_search_retries == 1
+    assert settings.agent_critique_retries == 1
+    assert settings.agent_llm_timeout == 240.0
+    assert settings.agent_mcp_timeout == 30.0
+    assert settings.agent_run_timeout == 2400.0
+    assert settings.agent_lookup_max_entities == 20
+    assert settings.agent_llm_reasoning is False
+    assert _make(AGENT_LLM_REASONING="true").agent_llm_reasoning is True
+    assert _make(AGENT_RUN_TIMEOUT="60", AGENT_LOOKUP_MAX_ENTITIES="3").agent_run_timeout == 60.0
+    assert settings.agent_review_required is False
+    assert _make(AGENT_REVIEW_REQUIRED="true").agent_review_required is True
+    assert settings.taskiq_admin_url == ""
+    assert _make(TASKIQ_ADMIN_URL="http://taskiq-admin:3000").taskiq_admin_url == (
+        "http://taskiq-admin:3000"
+    )
+
+
+def test_agent_overrides_from_env() -> None:
+    settings = _make(
+        REDIS_URL="redis://redis:6379/1",
+        AGENT_FETCH_MAX_BYTES="4096",
+        AGENT_SOURCE_CHAR_LIMIT="500",
+    )
+    assert settings.redis_url == "redis://redis:6379/1"
+    assert settings.agent_fetch_max_bytes == 4096
+    assert settings.agent_source_char_limit == 500
 
 
 def test_db_pool_bounds() -> None:
