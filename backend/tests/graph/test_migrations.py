@@ -22,8 +22,13 @@ _SCHEMA_NAMES = {
     "related_to_id",
     "related_to_owner_visibility",
     "entity_embedding",
+    "source_url_unique",
 }
-_MIGRATION_IDS = ["0001.entity-and-relationship-schema", "0002.entity-vector-index"]
+_MIGRATION_IDS = [
+    "0001.entity-and-relationship-schema",
+    "0002.entity-vector-index",
+    "0003.source-nodes",
+]
 
 
 async def _schema_names(driver: AsyncDriver) -> set[str]:

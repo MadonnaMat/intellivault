@@ -31,6 +31,23 @@
     {
       "match": { "systemMessage": "which existing entities the new one should be" },
       "response": { "content": "{\"links\": []}" }
+    },
+    {
+      "match": { "toolName": "launch_research_agent" },
+      "response": {
+        "toolCalls": [
+          {
+            "name": "launch_research_agent",
+            "arguments": { "topic": "The invention of the transistor at Bell Labs" }
+          }
+        ]
+      }
+    },
+    {
+      "match": { "systemMessage": "IntelliVault research assistant" },
+      "response": {
+        "content": "I've started researching the invention of the transistor at Bell Labs — I'll let you know what I find."
+      }
     }
   ]
 }

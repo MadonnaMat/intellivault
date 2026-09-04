@@ -26,10 +26,12 @@ services:
       start_period: 3s
 
   # taskiq-admin isn't in the e2e stack — don't fire lifecycle POSTs at a host
-  # that isn't there.
+  # that isn't there. The gateway also serves /chat now, which calls Ollama
+  # live per-request, so it needs the same mock swap as the worker below.
   backend:
     environment:
       TASKIQ_ADMIN_URL: ""
+      OLLAMA_URL: http://mock-ai:4010
 
   agent-worker:
     depends_on:

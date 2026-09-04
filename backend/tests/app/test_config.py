@@ -66,8 +66,8 @@ def test_agent_defaults() -> None:
     assert settings.agent_llm_reasoning is False
     assert _make(AGENT_LLM_REASONING="true").agent_llm_reasoning is True
     assert _make(AGENT_RUN_TIMEOUT="60", AGENT_LOOKUP_MAX_ENTITIES="3").agent_run_timeout == 60.0
-    assert settings.agent_review_required is False
-    assert _make(AGENT_REVIEW_REQUIRED="true").agent_review_required is True
+    assert settings.agent_review_required is True
+    assert _make(AGENT_REVIEW_REQUIRED="false").agent_review_required is False
     assert settings.taskiq_admin_url == ""
     assert _make(TASKIQ_ADMIN_URL="http://taskiq-admin:3000").taskiq_admin_url == (
         "http://taskiq-admin:3000"

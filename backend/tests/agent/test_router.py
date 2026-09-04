@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import cast
 from uuid import uuid4
 
 import asyncpg
+import pytest
 from fastapi.testclient import TestClient
 
 from app.auth.dependencies import current_user
@@ -95,6 +97,40 @@ def test_review_reject_does_not_enqueue(stub_commit_kick: list[str]) -> None:
     assert response.status_code == 200
     assert response.json()["status"] == "cancelled"
     assert stub_commit_kick == []
+
+
+def test_stream_run_404s_for_a_foreign_or_missing_run() -> None:
+    with agent_client(FakePool(fetchrow=None)) as client:
+        response = client.get(f"/agent/runs/{uuid4()}/stream")
+    assert response.status_code == 404
+
+
+def test_stream_run_returns_sse_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.agent.service.asyncio.sleep", instant_sleep)
+
+    run_id = uuid4()
+    t0 = datetime(2026, 9, 3, tzinfo=UTC)
+    t1 = datetime(2026, 9, 3, 0, 0, 1, tzinfo=UTC)
+    pool = FakePool(
+        fetchrow=[
+            make_run_row(id=run_id, status="running", updated_at=t0),  # router's upfront check
+            make_run_row(id=run_id, status="running", updated_at=t0),  # stream loop, poll 1
+            make_run_row(
+                id=run_id, status="succeeded", updated_at=t1
+            ),  # poll 2: changed + terminal
+        ]
+    )
+    with agent_client(pool) as client:
+        response = client.get(f"/agent/runs/{run_id}/stream")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.content.count(b"event: status") == 2
+    assert b'"status": "running"' in response.content
+    assert b'"status": "succeeded"' in response.content
 
 
 def test_review_409_when_not_awaiting() -> None:

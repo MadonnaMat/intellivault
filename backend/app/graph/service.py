@@ -63,7 +63,7 @@ def _dt(value: Any) -> datetime:
     return native
 
 
-def _entity(node: Mapping[str, Any]) -> Entity:
+def _entity(node: Mapping[str, Any], sources: list[str] | None = None) -> Entity:
     raw_attributes = node.get("attributes")
     return Entity(
         id=node["id"],
@@ -72,6 +72,7 @@ def _entity(node: Mapping[str, Any]) -> Entity:
         name=node["name"],
         kind=node["kind"],
         attributes=json.loads(raw_attributes) if raw_attributes else {},
+        sources=sources or [],
         created_at=_dt(node["created_at"]),
         updated_at=_dt(node["updated_at"]),
     )
@@ -89,6 +90,17 @@ async def create_entity(driver: AsyncDriver, owner_id: str, data: EntityInput) -
         attributes=json.dumps(data.attributes, sort_keys=True),
     )
     return _entity(rows[0]["e"])
+
+
+async def attach_sources(
+    driver: AsyncDriver, owner_id: str, entity_id: str, urls: list[str]
+) -> None:
+    """Link a caller-owned entity to the Source node for each of ``urls``
+    (create-or-match by URL, deduped, always public) — see
+    ``attach_sources.cypher``."""
+    if not urls:
+        return
+    await _run(driver, cypher("attach_sources"), owner_id=owner_id, entity_id=entity_id, urls=urls)
 
 
 def _relationship(row: Mapping[str, Any]) -> Relationship:
@@ -179,7 +191,7 @@ async def search_entities_by_vector(
         embedding=embedding,
         k=k,
     )
-    return [_entity(row["e"]) for row in rows]
+    return [_entity(row["e"], row.get("sources")) for row in rows]
 
 
 async def list_visible_relationships_among(
@@ -205,7 +217,7 @@ async def list_graph(driver: AsyncDriver, owner_id: str) -> GraphView:
         _run(driver, cypher("list_visible_relationships"), owner_id=owner_id),
     )
     return GraphView(
-        entities=[_entity(row["e"]) for row in entity_rows],
+        entities=[_entity(row["e"], row.get("sources")) for row in entity_rows],
         relationships=[_relationship(row) for row in relationship_rows],
     )
 
@@ -239,6 +251,15 @@ async def _clean_incident_edges(tx: AsyncManagedTransaction, owner_id: str, ids:
     await _tx_run(tx, "remove_foreign_edges", ids=ids, owner_id=owner_id)
 
 
+async def _sync_sources(tx: AsyncManagedTransaction, owner_id: str, ids: list[str]) -> None:
+    """Mirror each of ``ids``'s (new) visibility onto its SOURCED_FROM edges —
+    see ``sync_entity_sources.cypher``. Source nodes themselves are always
+    public, so there's nothing on their side to recompute."""
+    if not ids:
+        return
+    await _tx_run(tx, "sync_entity_sources", ids=ids, owner_id=owner_id)
+
+
 async def _single_visibility_tx(
     tx: AsyncManagedTransaction, owner_id: str, entity_id: str, visibility: str
 ) -> VisibilityChangeResult:
@@ -249,6 +270,8 @@ async def _single_visibility_tx(
     ).single()
     if row is None:
         raise HTTPException(_NOT_FOUND, "Entity not found")
+    if row["changed"]:
+        await _sync_sources(tx, owner_id, [entity_id])
     if visibility == "private":
         await _clean_incident_edges(tx, owner_id, [entity_id])
     return VisibilityChangeResult(affected_ids=[row["id"]] if row["changed"] else [])
@@ -269,9 +292,10 @@ async def _cascade_tx(
     )
     changed_row = await entity_result.single()
     await _tx_run(tx, "flip_relationships", ids=ids, owner_id=owner_id, visibility=visibility)
+    changed: list[str] = list(changed_row["changed"]) if changed_row else []
+    await _sync_sources(tx, owner_id, changed)
     if visibility == "private":
         await _clean_incident_edges(tx, owner_id, ids)
-    changed: list[str] = list(changed_row["changed"]) if changed_row else []
     return VisibilityChangeResult(affected_ids=changed)
 
 

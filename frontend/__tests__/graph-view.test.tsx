@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GraphEntity } from "@/lib/graph";
 
@@ -20,7 +20,10 @@ const {
   deleteRelationship: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh }),
+  usePathname: () => "/graph",
+}));
 vi.mock("@/lib/graph", () => ({
   createEntity,
   createRelationship,
@@ -63,6 +66,7 @@ function entity(overrides: Partial<GraphEntity> = {}): GraphEntity {
     name: "Acme",
     kind: "org",
     attributes: {},
+    sources: [],
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,
@@ -96,6 +100,32 @@ describe("GraphView", () => {
     const sharedRow = screen.getByTestId("entity-row-e2");
     expect(sharedRow).toHaveTextContent("public");
     expect(sharedRow).toHaveTextContent("shared");
+  });
+
+  it("links to each of an entity's sources, or shows a dash", () => {
+    render(
+      <GraphView
+        user={user}
+        initial={{
+          entities: [
+            entity({ sources: ["https://a.example/x", "https://b.example/y"] }),
+            entity({ id: "e2", owner_id: "u2", visibility: "public" }),
+          ],
+          relationships: [],
+        }}
+      />,
+    );
+    const sourced = screen.getByTestId("entity-row-e1");
+    const links = within(sourced).getAllByRole("link");
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "https://a.example/x",
+      "https://b.example/y",
+    ]);
+    expect(links[0]).toHaveAttribute("target", "_blank");
+    expect(links[0]).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(screen.getByTestId("entity-row-e2")).getAllByText("—").length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("only offers the visibility switch on entities you own", () => {

@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "AddMessageCommand": {
+        "properties": {
+          "message": {
+            "$ref": "#/components/schemas/ThreadMessage"
+          },
+          "type": {
+            "const": "add-message",
+            "default": "add-message",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "AddMessageCommand",
+        "type": "object"
+      },
       "AddPasskeyFinishRequest": {
         "properties": {
           "credential": {
@@ -20,6 +38,31 @@
           "credential"
         ],
         "title": "AddPasskeyFinishRequest",
+        "type": "object"
+      },
+      "AddToolResultCommand": {
+        "properties": {
+          "result": {
+            "additionalProperties": true,
+            "title": "Result",
+            "type": "object"
+          },
+          "toolCallId": {
+            "title": "Toolcallid",
+            "type": "string"
+          },
+          "type": {
+            "const": "add-tool-result",
+            "default": "add-tool-result",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "toolCallId",
+          "result"
+        ],
+        "title": "AddToolResultCommand",
         "type": "object"
       },
       "AgentRun": {
@@ -273,6 +316,71 @@
         "title": "AgentRunSummary",
         "type": "object"
       },
+      "AssistantRequest": {
+        "properties": {
+          "commands": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "add-message": "#/components/schemas/AddMessageCommand",
+                  "add-tool-result": "#/components/schemas/AddToolResultCommand"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AddMessageCommand"
+                },
+                {
+                  "$ref": "#/components/schemas/AddToolResultCommand"
+                }
+              ]
+            },
+            "title": "Commands",
+            "type": "array"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "system": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          }
+        },
+        "required": [
+          "commands"
+        ],
+        "title": "AssistantRequest",
+        "type": "object"
+      },
       "CredentialSummary": {
         "description": "One registered passkey, as shown on the account page.",
         "properties": {
@@ -422,6 +530,13 @@
             "title": "Owner Id",
             "type": "string"
           },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -548,6 +663,30 @@
           "services"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "MessagePart": {
+        "properties": {
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "MessagePart",
         "type": "object"
       },
       "Plan": {
@@ -773,6 +912,31 @@
           }
         },
         "title": "StructuredResult",
+        "type": "object"
+      },
+      "ThreadMessage": {
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/MessagePart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "role": {
+            "enum": [
+              "user",
+              "assistant"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "parts"
+        ],
+        "title": "ThreadMessage",
         "type": "object"
       },
       "UpdateAccountRequest": {
@@ -1051,6 +1215,47 @@
           }
         },
         "summary": "Review Run",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/agent/runs/{run_id}/stream": {
+      "get": {
+        "operationId": "stream_run_agent_runs__run_id__stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Run",
         "tags": [
           "agent"
         ]
@@ -1404,6 +1609,45 @@
         "summary": "Register Finish",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/chat": {
+      "post": {
+        "operationId": "chat_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Chat",
+        "tags": [
+          "chat"
         ]
       }
     },

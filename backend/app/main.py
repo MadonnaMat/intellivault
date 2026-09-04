@@ -15,6 +15,7 @@ from scalar_fastapi import add_scalar_reference
 from app import observability
 from app.agent import agent_router
 from app.auth import auth_router
+from app.chat import chat_router
 from app.config import Settings, get_settings
 from app.graph import graph_router
 from app.health import health_router
@@ -42,12 +43,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         connection_acquisition_timeout=CHECK_TIMEOUT_SECONDS,
     )
     http_client = httpx.AsyncClient(timeout=CHECK_TIMEOUT_SECONDS)
+    # Longer-lived than the health-check client — a chat turn's Ollama calls can
+    # run well past CHECK_TIMEOUT_SECONDS.
+    chat_http_client = httpx.AsyncClient(timeout=settings.chat_llm_timeout)
 
     # Shared clients live on app.state; request handlers reach them via the
-    # app.db.get_pool / app.graph.db.get_driver dependencies, and the health
-    # probes read the same objects.
+    # app.db.get_pool / app.graph.db.get_driver / app.chat.deps.get_chat_http_client
+    # dependencies, and the health probes read the same objects.
     app.state.pg_pool = pg_pool
     app.state.neo4j_driver = neo4j_driver
+    app.state.chat_http_client = chat_http_client
     app.state.health_probes = HealthProbes(
         settings=settings,
         pg_pool=pg_pool,
@@ -57,6 +62,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await chat_http_client.aclose()
         await http_client.aclose()
         await neo4j_driver.close()
         await pg_pool.close()
@@ -91,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(graph_router)
     app.include_router(agent_router)
+    app.include_router(chat_router)
 
     if docs:
         # Scalar API explorer at /scalar — served by us, so "try it out" is

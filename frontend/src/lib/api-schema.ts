@@ -59,6 +59,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/agent/runs/{run_id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream Run */
+        get: operations["stream_run_agent_runs__run_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/credentials": {
         parameters: {
             query?: never;
@@ -230,6 +247,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Chat */
+        post: operations["chat_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/graph": {
         parameters: {
             query?: never;
@@ -379,6 +413,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddMessageCommand */
+        AddMessageCommand: {
+            message: components["schemas"]["ThreadMessage"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "add-message";
+        };
         /** AddPasskeyFinishRequest */
         AddPasskeyFinishRequest: {
             /** Credential */
@@ -387,6 +430,20 @@ export interface components {
             };
             /** Name */
             name: string;
+        };
+        /** AddToolResultCommand */
+        AddToolResultCommand: {
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Toolcallid */
+            toolCallId: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "add-tool-result";
         };
         /**
          * AgentRun
@@ -495,6 +552,21 @@ export interface components {
              */
             updated_at: string;
         };
+        /** AssistantRequest */
+        AssistantRequest: {
+            /** Commands */
+            commands: (components["schemas"]["AddMessageCommand"] | components["schemas"]["AddToolResultCommand"])[];
+            /** State */
+            state?: {
+                [key: string]: unknown;
+            } | null;
+            /** System */
+            system?: string | null;
+            /** Tools */
+            tools?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /**
          * CredentialSummary
          * @description One registered passkey, as shown on the account page.
@@ -575,6 +647,8 @@ export interface components {
              * Format: uuid
              */
             owner_id: string;
+            /** Sources */
+            sources?: string[];
             /**
              * Updated At
              * Format: date-time
@@ -633,6 +707,13 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "degraded" | "down";
+        };
+        /** MessagePart */
+        MessagePart: {
+            /** Text */
+            text?: string | null;
+            /** Type */
+            type: string;
         };
         /**
          * Plan
@@ -766,6 +847,16 @@ export interface components {
             entities?: components["schemas"]["DraftEntity"][];
             /** Relationships */
             relationships?: components["schemas"]["DraftRelationship"][];
+        };
+        /** ThreadMessage */
+        ThreadMessage: {
+            /** Parts */
+            parts: components["schemas"]["MessagePart"][];
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "user" | "assistant";
         };
         /** UpdateAccountRequest */
         UpdateAccountRequest: {
@@ -926,6 +1017,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentRun"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_run_agent_runs__run_id__stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -1228,6 +1350,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    chat_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

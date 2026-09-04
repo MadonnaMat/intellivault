@@ -26,6 +26,7 @@ function entity(overrides: Partial<GraphEntity>): GraphEntity {
 
 interface FakeTapEvent {
   target: { data: (key: string) => unknown; id: () => string };
+  originalEvent?: { shiftKey?: boolean };
 }
 
 afterEach(() => {
@@ -72,9 +73,29 @@ describe("GraphDiagram", () => {
     const handler = tap?.[2] as (event: FakeTapEvent) => void;
 
     handler({ target: { data: (key) => (key === "mine" ? "yes" : undefined), id: () => "a" } });
-    expect(onToggle).toHaveBeenCalledWith(mine);
+    expect(onToggle).toHaveBeenCalledWith(mine, false);
 
     handler({ target: { data: () => "no", id: () => "b" } });
     expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("cascades on shift-tap, but not on a plain tap", () => {
+    const onToggle = vi.fn();
+    const mine = entity({ id: "a", owner_id: "u1" });
+
+    render(<GraphDiagram entities={[mine]} relationships={[]} ownerId="u1" onToggle={onToggle} />);
+
+    const tap = cy.on.mock.calls.find((call) => call[0] === "tap" && call[1] === "node");
+    const handler = tap?.[2] as (event: FakeTapEvent) => void;
+    const target = { data: (key: string) => (key === "mine" ? "yes" : undefined), id: () => "a" };
+
+    handler({ target, originalEvent: { shiftKey: true } });
+    expect(onToggle).toHaveBeenNthCalledWith(1, mine, true);
+
+    handler({ target, originalEvent: { shiftKey: false } });
+    expect(onToggle).toHaveBeenNthCalledWith(2, mine, false);
+
+    handler({ target });
+    expect(onToggle).toHaveBeenNthCalledWith(3, mine, false);
   });
 });

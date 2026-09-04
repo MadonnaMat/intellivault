@@ -4,18 +4,25 @@ body {
   padding: 0;
 }
 
-main {
+/* AppShell's Layout.Content renders the page's one real <main> landmark, so
+   pages get their width/centering from this class on an inner <div> instead
+   of a second <main> tag (nesting two <main> elements broke width cascading
+   here: a stray `main { max-width }` rule constrained the outer one too). */
+.page-shell {
   max-width: 680px;
   margin: 0 auto;
   padding: 3rem 1.25rem;
 }
 
-/* The graph page needs more width than the 680px default for its tables. */
-main.graph-shell {
-  max-width: 1100px;
+/* Content-heavy pages (tables, chat) get more room than the 680px prose
+   default — one shared "wide" standard instead of a one-off per page. */
+.graph-shell,
+.chat-shell {
+  max-width: 1400px;
 }
 
-/* Full-viewport centering for the login / register cards. */
+/* Full-viewport centering for the login / register cards (these pages have
+   no AppShell/nav, so their <main> is the page's only one). */
 main.auth-shell {
   max-width: none;
   padding: 1.25rem;
@@ -23,9 +30,4 @@ main.auth-shell {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.subtitle {
-  color: #888;
-  margin-top: 0;
 }

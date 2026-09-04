@@ -8,6 +8,7 @@ noted, never fatal.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from app.agent.deps import AgentDeps
@@ -103,7 +104,11 @@ async def lookup_node(state: AgentState, *, deps: AgentDeps) -> dict[str, Any]:
 
     entities: list[DraftEntity] = []
     extra: list[DraftRelationship] = []
-    for draft in to_enrich:
+    for i, draft in enumerate(to_enrich):
+        if i > 0 and deps.settings.agent_lookup_pace_seconds > 0:
+            # Space out distinct-article lookups — back-to-back requests for a
+            # broad topic's many entities can trip Wikipedia's rate limit.
+            await asyncio.sleep(deps.settings.agent_lookup_pace_seconds)
         enriched, edges = await _enrich_one(draft, by_name, deps=deps, skipped=skipped)
         entities.append(enriched)
         extra.extend(edges)

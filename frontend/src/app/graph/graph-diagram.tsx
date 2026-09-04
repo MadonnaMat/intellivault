@@ -71,7 +71,8 @@ const STYLESHEET: cytoscape.StylesheetJson = [
 /**
  * Interactive node-link view of the visible graph (Cytoscape.js): pan, zoom,
  * drag nodes; filled dot = public, hollow = private; dashed edge = private;
- * thick ring = yours. Tapping a node you own toggles its visibility.
+ * thick ring = yours. Tapping a node you own toggles its visibility;
+ * shift-tapping cascades the toggle to its connected owned sub-graph.
  */
 export function GraphDiagram({
   entities,
@@ -82,7 +83,7 @@ export function GraphDiagram({
   entities: GraphEntity[];
   relationships: GraphRelationship[];
   ownerId: string;
-  onToggle: (entity: GraphEntity) => void;
+  onToggle: (entity: GraphEntity, cascade: boolean) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const onToggleRef = useRef(onToggle);
@@ -104,7 +105,9 @@ export function GraphDiagram({
     cy.on("tap", "node", (event: cytoscape.EventObject) => {
       if (event.target.data("mine") !== "yes") return;
       const entity = entities.find((candidate) => candidate.id === event.target.id());
-      if (entity) onToggleRef.current(entity);
+      if (!entity) return;
+      const original = event.originalEvent as MouseEvent | undefined;
+      onToggleRef.current(entity, !!original?.shiftKey);
     });
 
     return () => cy.destroy();
@@ -119,15 +122,20 @@ export function GraphDiagram({
   }
 
   return (
-    <div
-      ref={containerRef}
-      data-testid="graph-diagram"
-      style={{
-        width: "100%",
-        height: 380,
-        border: "1px solid #f0f0f0",
-        borderRadius: 6,
-      }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        data-testid="graph-diagram"
+        style={{
+          width: "100%",
+          height: 380,
+          border: "1px solid #f0f0f0",
+          borderRadius: 6,
+        }}
+      />
+      <p style={{ color: "#8c8c8c", fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        Click to toggle visibility · Shift-click to toggle the connected sub-graph
+      </p>
+    </>
   );
 }

@@ -26,6 +26,7 @@ dependencies = [
     "langgraph>=1.2",
     "scalar-fastapi>=1.9",
     "trafilatura>=2.0",
+    "assistant-stream>=0.0.28",
 ]
 
 [dependency-groups]
@@ -60,6 +61,10 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = "soft_webauthn"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "assistant_stream.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -51,6 +51,8 @@ _SETTINGS = Settings(
     OLLAMA_URL=_OLLAMA,
     OLLAMA_CHAT_MODEL="qwen3:8b",
     OLLAMA_EMBED_MODEL="nomic-embed-text",
+    # This test exercises the full run-to-commit lifecycle, not the review gate.
+    AGENT_REVIEW_REQUIRED="false",
 )
 
 

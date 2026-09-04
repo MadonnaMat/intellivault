@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from app.agent.fetch import FetchedDoc
 from app.agent.nodes import commit_node
 from app.agent.schemas import StructuredResult
 from tests.agent.conftest import FakeEmbedder, FakePool, edge_row, fake_deps, make_state, node_row
@@ -64,6 +65,53 @@ async def test_survives_an_embedding_failure() -> None:
     out = await commit_node(make_state(structured=result), deps=deps)
     assert len(out["committed_entity_ids"]) == 1
     assert any("embed New Co: ollama down" in n for n in out["skipped"])
+
+
+async def test_attaches_every_fetched_url_to_each_new_entity() -> None:
+    result = StructuredResult.model_validate(
+        {"entities": [{"temp_id": "e1", "name": "New Co", "kind": "org"}]}
+    )
+    driver = FakeNeo4jDriver([node_row("New Co")], [], [{"id": "ok"}])  # create, attach, embed
+    state = make_state(
+        structured=result,
+        documents=[
+            FetchedDoc(url="https://a.example/x", text="a"),
+            FetchedDoc(url="https://b.example/y", text="b"),
+        ],
+    )
+    out = await commit_node(state, deps=fake_deps(driver=driver, pool=FakePool()))
+
+    assert len(out["committed_entity_ids"]) == 1
+    attach = [p for q, p in driver.calls if "SOURCED_FROM" in q][0]
+    assert attach["urls"] == ["https://a.example/x", "https://b.example/y"]
+    assert not any(n.startswith("attach sources") for n in out["skipped"])
+
+
+async def test_survives_a_source_attach_failure() -> None:
+    result = StructuredResult.model_validate(
+        {"entities": [{"temp_id": "e1", "name": "New Co", "kind": "org"}]}
+    )
+
+    driver = FakeNeo4jDriver([node_row("New Co")])
+    original_run = driver.session
+
+    calls = {"n": 0}
+
+    def flaky_session(**kwargs: object) -> object:
+        calls["n"] += 1
+        if calls["n"] == 2:  # the attach_sources call
+            raise RuntimeError("neo4j down")
+        return original_run(**kwargs)
+
+    driver.session = flaky_session  # type: ignore[assignment]
+    state = make_state(
+        structured=result, documents=[FetchedDoc(url="https://a.example/x", text="a")]
+    )
+
+    out = await commit_node(state, deps=fake_deps(driver=driver, pool=FakePool()))
+
+    assert len(out["committed_entity_ids"]) == 1
+    assert any("attach sources" in n and "neo4j down" in n for n in out["skipped"])
 
 
 async def test_routes_a_rejected_edge_into_skipped() -> None:

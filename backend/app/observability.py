@@ -15,7 +15,10 @@ Both share :func:`_register_tracer_provider`, which honours
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from fastapi import FastAPI
@@ -25,6 +28,7 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 
 TracerProvider = Any  # phoenix.otel.register's return type, kept import-free here
+Span = Any  # opentelemetry.trace.Span, kept import-free here
 
 
 def _register_tracer_provider(settings: Settings) -> TracerProvider | None:
@@ -69,6 +73,40 @@ def setup(app: FastAPI, settings: Settings) -> None:
         logger.warning("Phoenix/OTel instrumentation disabled: %s", exc)
         return
     app.state.tracer_provider = provider
+
+
+def get_provider(app: FastAPI) -> TracerProvider | None:
+    """The gateway's tracer provider, or None (Phoenix down / tracing disabled)."""
+    return getattr(app.state, "tracer_provider", None)
+
+
+@contextmanager
+def traced(
+    provider: TracerProvider | None,
+    tracer_name: str,
+    span_name: str,
+    *,
+    kind: str,
+    metadata: dict[str, Any] | None = None,
+) -> Iterator[Span | None]:
+    """Open one OpenInference-tagged span (or a no-op when tracing is off).
+
+    ``kind`` is an OpenInference span kind ("AGENT", "TOOL", "CHAIN", ...) —
+    Phoenix groups and renders spans by this. ``metadata`` becomes the span's
+    ``metadata`` attribute (JSON), the place for "what was this called with,
+    what did it do" details a plain span name can't carry.
+    """
+    if provider is None:
+        yield None
+        return
+    from openinference.semconv.trace import SpanAttributes
+
+    attributes: dict[str, Any] = {SpanAttributes.OPENINFERENCE_SPAN_KIND: kind}
+    if metadata is not None:
+        attributes[SpanAttributes.METADATA] = json.dumps(metadata, default=str)
+    tracer = provider.get_tracer(tracer_name)
+    with tracer.start_as_current_span(span_name, attributes=attributes) as span:
+        yield span
 
 
 def setup_worker(settings: Settings) -> TracerProvider | None:

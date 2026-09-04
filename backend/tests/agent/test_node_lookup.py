@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.agent.nodes import lookup_node
 from app.agent.schemas import StructuredResult
+from app.config import Settings
 from tests.agent.conftest import FakeTool, fake_deps, fake_wikipedia_tools, make_state
 from tests.graph.conftest import FakeNeo4jDriver
 
@@ -90,3 +93,50 @@ async def test_lookup_skips_an_empty_draft() -> None:
         make_state(structured=StructuredResult()), deps=fake_deps(driver=FakeNeo4jDriver())
     )
     assert out == {}
+
+
+async def test_lookup_paces_between_entities_but_not_before_the_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slept: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr("app.agent.nodes.lookup.asyncio.sleep", fake_sleep)
+    wiki = fake_wikipedia_tools(
+        search_wikipedia={"results": [{"title": "Bell Labs"}]},
+        get_summary={"summary": "lab"},
+        get_related_topics={"related": []},
+    )
+    paced_settings = Settings(
+        _env_file=None,
+        NEO4J_PASSWORD="n",
+        DATABASE_URL="postgresql://u:p@localhost:5432/db",
+        AGENT_LOOKUP_PACE_SECONDS="0.3",
+    )
+    deps = fake_deps(driver=FakeNeo4jDriver(), wikipedia_tools=wiki, settings=paced_settings)
+
+    await lookup_node(make_state(structured=_DRAFT), deps=deps)  # 2 entities in _DRAFT
+
+    assert slept == [0.3]  # one pause, before the second entity only
+
+
+async def test_lookup_pace_zero_never_sleeps(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = False
+
+    async def fake_sleep(seconds: float) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr("app.agent.nodes.lookup.asyncio.sleep", fake_sleep)
+    wiki = fake_wikipedia_tools(
+        search_wikipedia={"results": [{"title": "Bell Labs"}]},
+        get_summary={"summary": "lab"},
+        get_related_topics={"related": []},
+    )
+    deps = fake_deps(driver=FakeNeo4jDriver(), wikipedia_tools=wiki)  # default pace: 0 in tests
+
+    await lookup_node(make_state(structured=_DRAFT), deps=deps)
+
+    assert called is False

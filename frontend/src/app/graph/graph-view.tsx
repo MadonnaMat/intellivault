@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -33,7 +32,7 @@ import {
   type Visibility,
 } from "@/lib/graph";
 import { useAsyncAction } from "@/lib/use-async-action";
-import { LogoutButton } from "../logout-button";
+import { AppShell } from "../app-shell";
 
 // Cytoscape is ~200 kB and touches `window`; load it only in the browser.
 const GraphDiagram = dynamic(
@@ -107,13 +106,15 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
     ownedEntityIds.has(rel.from_id) ||
     ownedEntityIds.has(rel.to_id);
 
-  async function toggleVisibility(entity: GraphEntity) {
+  // cascadeOverride comes from the diagram's shift-click; the table's Switch
+  // calls this with no second argument, falling back to its own checkbox.
+  async function toggleVisibility(entity: GraphEntity, cascadeOverride?: boolean) {
     const next: Visibility = entity.visibility === "public" ? "private" : "public";
     setPendingId(entity.id);
     setError(null);
     const result = await setEntityVisibility(entity.id, {
       visibility: next,
-      cascade: !!cascade[entity.id],
+      cascade: cascadeOverride ?? !!cascade[entity.id],
     });
     setPendingId(null);
     if (result.ok) refresh();
@@ -175,6 +176,28 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
       key: "owner",
       render: (_: unknown, entity: GraphEntity) =>
         entity.owner_id === user.id ? <Tag color="blue">you</Tag> : <Tag>shared</Tag>,
+    },
+    {
+      title: "Sources",
+      key: "sources",
+      render: (_: unknown, entity: GraphEntity) =>
+        entity.sources?.length ? (
+          <Space direction="vertical" size="small">
+            {entity.sources.map((url) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid={`entity-${entity.id}-source`}
+              >
+                {url}
+              </a>
+            ))}
+          </Space>
+        ) : (
+          <Typography.Text type="secondary">—</Typography.Text>
+        ),
     },
     {
       title: "Change visibility",
@@ -264,143 +287,139 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
   const entityOptions = entities.map((entity) => ({ value: entity.id, label: entity.name }));
 
   return (
-    <main className="graph-shell">
-      <h1>Knowledge graph</h1>
-      <Space style={{ marginBottom: 16 }}>
-        <Link href="/" data-testid="home-link">
-          Back to home
-        </Link>
-        <LogoutButton />
-      </Space>
+    <AppShell user={user}>
+      <div className="page-shell graph-shell">
+        <h1>Knowledge graph</h1>
 
-      {error && (
-        <Alert
-          data-testid="graph-error"
-          type="error"
-          showIcon
-          title={error}
+        {error && (
+          <Alert
+            data-testid="graph-error"
+            type="error"
+            showIcon
+            title={error}
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        <Card
+          title="Graph"
+          data-testid="graph-diagram-card"
           style={{ marginBottom: 16 }}
-        />
-      )}
-
-      <Card
-        title="Graph"
-        data-testid="graph-diagram-card"
-        style={{ marginBottom: 16 }}
-        extra={
-          <Button
-            data-testid="load-sample-graph"
-            onClick={onLoadSample}
-            loading={loading}
-            disabled={entities.length > 0}
-            title={
-              entities.length > 0
-                ? "Clear the graph first — the sample would be added on top"
-                : undefined
-            }
-          >
-            Load sample graph
-          </Button>
-        }
-      >
-        <GraphDiagram
-          entities={entities}
-          relationships={relationships}
-          ownerId={user.id}
-          onToggle={toggleVisibility}
-        />
-      </Card>
-
-      <Card title="Entities" data-testid="entities-card" style={{ marginBottom: 16 }}>
-        <Form
-          form={entityForm}
-          layout="inline"
-          initialValues={{ visibility: "private" }}
-          onFinish={onCreateEntity}
-          style={{ marginBottom: 16, rowGap: 8, flexWrap: "wrap" }}
-        >
-          <Form.Item name="name" rules={[{ required: true, message: "Name" }]}>
-            <Input placeholder="Name" data-testid="create-entity-name" />
-          </Form.Item>
-          <Form.Item name="kind" rules={[{ required: true, message: "Kind" }]}>
-            <Input placeholder="Kind (e.g. person)" data-testid="create-entity-kind" />
-          </Form.Item>
-          <Form.Item name="visibility">
-            <Select
-              options={VISIBILITY_OPTIONS}
-              data-testid="create-entity-visibility"
-              style={{ width: 120 }}
-            />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={loading} data-testid="create-entity-submit">
-            Add entity
-          </Button>
-        </Form>
-        <Table
-          rowKey="id"
-          size="small"
-          dataSource={entities}
-          columns={entityColumns}
-          pagination={false}
-          locale={{ emptyText: "No entities" }}
-          onRow={(entity) => ({ "data-testid": `entity-row-${entity.id}` }) as object}
-        />
-      </Card>
-
-      <Card title="Relationships" data-testid="relationships-card">
-        <Form
-          form={relForm}
-          layout="inline"
-          initialValues={{ visibility: "private" }}
-          onFinish={onCreateRelationship}
-          style={{ marginBottom: 16, rowGap: 8, flexWrap: "wrap" }}
-        >
-          <Form.Item name="from_id" rules={[{ required: true, message: "From" }]}>
-            <Select
-              placeholder="From"
-              options={entityOptions}
-              data-testid="create-rel-from"
-              style={{ width: 160 }}
-            />
-          </Form.Item>
-          <Form.Item name="kind" rules={[{ required: true, message: "Kind" }]}>
-            <Input placeholder="Kind (e.g. employs)" data-testid="create-rel-kind" />
-          </Form.Item>
-          <Form.Item name="to_id" rules={[{ required: true, message: "To" }]}>
-            <Select
-              placeholder="To"
-              options={entityOptions}
-              data-testid="create-rel-to"
-              style={{ width: 160 }}
-            />
-          </Form.Item>
-          <Form.Item name="visibility">
-            <Select
-              options={VISIBILITY_OPTIONS}
-              data-testid="create-rel-visibility"
-              style={{ width: 120 }}
-              disabled={!relCanBePublic}
+          extra={
+            <Button
+              data-testid="load-sample-graph"
+              onClick={onLoadSample}
+              loading={loading}
+              disabled={entities.length > 0}
               title={
-                relCanBePublic
-                  ? undefined
-                  : "A relationship can only be public when both entities are public"
+                entities.length > 0
+                  ? "Clear the graph first — the sample would be added on top"
+                  : undefined
               }
-            />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={loading} data-testid="create-rel-submit">
-            Connect
-          </Button>
-        </Form>
-        <Table
-          rowKey="id"
-          size="small"
-          dataSource={relationships}
-          columns={relationshipColumns}
-          pagination={false}
-          locale={{ emptyText: "No relationships" }}
-          onRow={(rel) => ({ "data-testid": `rel-row-${rel.id}` }) as object}
-        />
-      </Card>
-    </main>
+            >
+              Load sample graph
+            </Button>
+          }
+        >
+          <GraphDiagram
+            entities={entities}
+            relationships={relationships}
+            ownerId={user.id}
+            onToggle={toggleVisibility}
+          />
+        </Card>
+
+        <Card title="Entities" data-testid="entities-card" style={{ marginBottom: 16 }}>
+          <Form
+            form={entityForm}
+            layout="inline"
+            initialValues={{ visibility: "private" }}
+            onFinish={onCreateEntity}
+            style={{ marginBottom: 16, rowGap: 8, flexWrap: "wrap" }}
+          >
+            <Form.Item name="name" rules={[{ required: true, message: "Name" }]}>
+              <Input placeholder="Name" data-testid="create-entity-name" />
+            </Form.Item>
+            <Form.Item name="kind" rules={[{ required: true, message: "Kind" }]}>
+              <Input placeholder="Kind (e.g. person)" data-testid="create-entity-kind" />
+            </Form.Item>
+            <Form.Item name="visibility">
+              <Select
+                options={VISIBILITY_OPTIONS}
+                data-testid="create-entity-visibility"
+                style={{ width: 120 }}
+              />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" loading={loading} data-testid="create-entity-submit">
+              Add entity
+            </Button>
+          </Form>
+          <Table
+            rowKey="id"
+            size="small"
+            dataSource={entities}
+            columns={entityColumns}
+            pagination={false}
+            locale={{ emptyText: "No entities" }}
+            onRow={(entity) => ({ "data-testid": `entity-row-${entity.id}` }) as object}
+          />
+        </Card>
+
+        <Card title="Relationships" data-testid="relationships-card">
+          <Form
+            form={relForm}
+            layout="inline"
+            initialValues={{ visibility: "private" }}
+            onFinish={onCreateRelationship}
+            style={{ marginBottom: 16, rowGap: 8, flexWrap: "wrap" }}
+          >
+            <Form.Item name="from_id" rules={[{ required: true, message: "From" }]}>
+              <Select
+                placeholder="From"
+                options={entityOptions}
+                data-testid="create-rel-from"
+                style={{ width: 160 }}
+              />
+            </Form.Item>
+            <Form.Item name="kind" rules={[{ required: true, message: "Kind" }]}>
+              <Input placeholder="Kind (e.g. employs)" data-testid="create-rel-kind" />
+            </Form.Item>
+            <Form.Item name="to_id" rules={[{ required: true, message: "To" }]}>
+              <Select
+                placeholder="To"
+                options={entityOptions}
+                data-testid="create-rel-to"
+                style={{ width: 160 }}
+              />
+            </Form.Item>
+            <Form.Item name="visibility">
+              <Select
+                options={VISIBILITY_OPTIONS}
+                data-testid="create-rel-visibility"
+                style={{ width: 120 }}
+                disabled={!relCanBePublic}
+                title={
+                  relCanBePublic
+                    ? undefined
+                    : "A relationship can only be public when both entities are public"
+                }
+              />
+            </Form.Item>
+            <Button type="primary" htmlType="submit" loading={loading} data-testid="create-rel-submit">
+              Connect
+            </Button>
+          </Form>
+          <Table
+            rowKey="id"
+            size="small"
+            dataSource={relationships}
+            columns={relationshipColumns}
+            pagination={false}
+            locale={{ emptyText: "No relationships" }}
+            onRow={(rel) => ({ "data-testid": `rel-row-${rel.id}` }) as object}
+          />
+        </Card>
+      </div>
+    </AppShell>
   );
 }

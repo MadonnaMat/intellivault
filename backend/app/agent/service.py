@@ -7,7 +7,9 @@ LangGraph run progresses. Multi-line SQL lives in ``app/agent/sql/``.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import asyncio
+import json
+from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -26,9 +28,18 @@ from app.agent.schemas import (
     StructuredResult,
 )
 from app.agent.statements import sql
+from app.streaming import format_sse, format_sse_comment
 
 _NOT_FOUND = status.HTTP_404_NOT_FOUND
 _CONFLICT = status.HTTP_409_CONFLICT
+
+# awaiting_review is terminal-for-the-stream: a stable state needing a UI
+# decision, not an in-progress one. The frontend has the full AgentRun
+# (including `pending`) from that final event and can render review controls
+# without staying subscribed.
+_STREAM_TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "awaiting_review"}
+_POLL_INTERVAL_SECONDS = 1.0
+_HEARTBEAT_INTERVAL_SECONDS = 15.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +104,32 @@ async def get_run(pool: asyncpg.Pool, user_id: UUID, run_id: UUID) -> AgentRun:
     return _run(row)
 
 
+async def stream_run(pool: asyncpg.Pool, user_id: UUID, run_id: UUID) -> AsyncIterator[bytes]:
+    """Poll ``agent_runs`` and yield an SSE ``status`` event on every change,
+    stopping once the run reaches a terminal status.
+
+    Callers must confirm the run exists (``get_run``) *before* constructing a
+    ``StreamingResponse`` around this generator: an ASGI streaming response
+    commits to its status code the moment streaming starts, so a 404 raised
+    from in here — on a run deleted mid-stream, say — couldn't change it.
+    """
+    last_updated_at = None
+    last_heartbeat = asyncio.get_running_loop().time()
+    while True:
+        run = await get_run(pool, user_id, run_id)
+        if run.updated_at != last_updated_at:
+            last_updated_at = run.updated_at
+            yield format_sse("status", run.model_dump(mode="json"))
+            last_heartbeat = asyncio.get_running_loop().time()
+        if run.status in _STREAM_TERMINAL_STATUSES:
+            return
+        now = asyncio.get_running_loop().time()
+        if now - last_heartbeat >= _HEARTBEAT_INTERVAL_SECONDS:
+            yield format_sse_comment("keep-alive")
+            last_heartbeat = now
+        await asyncio.sleep(_POLL_INTERVAL_SECONDS)
+
+
 async def list_runs(pool: asyncpg.Pool, user_id: UUID) -> list[AgentRunSummary]:
     rows = await pool.fetch(sql("list_runs"), user_id)
     return [_summary(row) for row in rows]
@@ -148,22 +185,33 @@ async def get_run_internal(pool: asyncpg.Pool, run_id: UUID) -> AgentRunMeta:
     )
 
 
+def _load_urls(raw: Any) -> list[str]:
+    """Parse the ``source_urls`` JSONB column (asyncpg hands it back as ``str``;
+    tests pass a list directly)."""
+    if raw is None:
+        return []
+    return json.loads(raw) if isinstance(raw, str) else list(raw)
+
+
 @dataclass(frozen=True, slots=True)
 class ParkedRun:
-    """What an approved run resumes from: the drafts to commit + the research
-    phase's partial result (analysis + skipped notes)."""
+    """What an approved run resumes from: the drafts to commit, the research
+    phase's partial result (analysis + skipped notes), and the URLs it
+    fetched (so the commit phase can re-attach sources)."""
 
     drafts: StructuredResult
     partial: AgentRunResult | None
+    source_urls: list[str]
 
 
 async def load_parked(pool: asyncpg.Pool, run_id: UUID) -> ParkedRun:
     row = await pool.fetchrow(sql("get_pending"), run_id)
     if row is None:
-        return ParkedRun(StructuredResult(), None)
+        return ParkedRun(StructuredResult(), None, [])
     return ParkedRun(
         drafts=_load(row["pending"], StructuredResult) or StructuredResult(),
         partial=_load(row["result"], AgentRunResult),
+        source_urls=_load_urls(row["source_urls"]),
     )
 
 
@@ -172,10 +220,18 @@ async def mark_running(pool: asyncpg.Pool, run_id: UUID) -> None:
 
 
 async def mark_awaiting_review(
-    pool: asyncpg.Pool, run_id: UUID, pending: StructuredResult, partial: AgentRunResult
+    pool: asyncpg.Pool,
+    run_id: UUID,
+    pending: StructuredResult,
+    partial: AgentRunResult,
+    source_urls: list[str],
 ) -> None:
     await pool.execute(
-        sql("mark_awaiting_review"), run_id, pending.model_dump_json(), partial.model_dump_json()
+        sql("mark_awaiting_review"),
+        run_id,
+        pending.model_dump_json(),
+        partial.model_dump_json(),
+        json.dumps(source_urls),
     )
 
 

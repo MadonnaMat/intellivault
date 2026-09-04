@@ -73,3 +73,17 @@ def test_review_rollback_restores_the_original_check() -> None:
     collapsed = " ".join(rollback.split())
     assert "DROP COLUMN pending" in collapsed
     assert "CHECK (status IN ('queued', 'running', 'succeeded', 'failed'))" in collapsed
+
+
+@pytest.fixture
+def source_urls_sql() -> str:
+    return (MIGRATIONS / "0006.agent-run-source-urls.sql").read_text(encoding="utf-8")
+
+
+def test_adds_the_source_urls_column(source_urls_sql: str) -> None:
+    assert "ADD COLUMN source_urls JSONB NOT NULL DEFAULT '[]'::jsonb" in source_urls_sql
+
+
+def test_source_urls_rollback_drops_the_column() -> None:
+    rollback = (MIGRATIONS / "0006.agent-run-source-urls.rollback.sql").read_text(encoding="utf-8")
+    assert rollback.strip() == "ALTER TABLE agent_runs DROP COLUMN source_urls;"

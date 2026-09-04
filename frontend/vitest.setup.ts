@@ -15,6 +15,11 @@ const realGetComputedStyle = window.getComputedStyle.bind(window);
 window.getComputedStyle = ((element: Element) =>
   realGetComputedStyle(element)) as typeof window.getComputedStyle;
 
+// assistant-ui's thread auto-scroll calls Element.scrollTo on a rAF tick,
+// sometimes after a test has already torn its component down; jsdom has no
+// scrollTo at all, which otherwise surfaces as an unhandled exception.
+Element.prototype.scrollTo = vi.fn();
+
 // antd reads matchMedia at render; jsdom doesn't implement it.
 Object.defineProperty(window, "matchMedia", {
   writable: true,

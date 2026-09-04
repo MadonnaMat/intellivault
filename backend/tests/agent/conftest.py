@@ -63,6 +63,12 @@ _TEST_SETTINGS = Settings(
     OLLAMA_URL="http://ollama.test:11434",
     AGENT_MAX_SOURCES="3",
     AGENT_SOURCE_CHAR_LIMIT="2000",
+    # Most tests here exercise the full run-to-commit lifecycle; review-gating
+    # is opted into explicitly (see _REVIEW_SETTINGS in test_tasks.py).
+    AGENT_REVIEW_REQUIRED="false",
+    # No real Wikipedia API to rate-limit here — don't slow the suite down
+    # sleeping between lookup_node's fake entities.
+    AGENT_LOOKUP_PACE_SECONDS="0",
 )
 
 
@@ -298,6 +304,7 @@ def make_run_row(**overrides: Any) -> Row:
         "plan": None,
         "result": None,
         "pending": None,
+        "source_urls": "[]",
         "committed_entity_ids": [],
         "committed_relationship_ids": [],
         "error": None,

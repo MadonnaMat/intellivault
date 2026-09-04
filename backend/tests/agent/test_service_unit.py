@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 
 from app.agent import service
-from app.agent.schemas import AgentRunCreate, AgentRunResult, AgentRunReview, Plan
+from app.agent.schemas import (
+    AgentRunCreate,
+    AgentRunResult,
+    AgentRunReview,
+    DraftEntity,
+    Plan,
+    StructuredResult,
+)
 from tests.agent.conftest import FakePool, as_pool, find_call, make_run_row
 
 
@@ -179,6 +187,23 @@ async def test_submit_review_404_when_missing() -> None:
     assert exc.value.status_code == 404
 
 
+async def test_mark_awaiting_review_parks_drafts_result_and_source_urls() -> None:
+    run_id = uuid4()
+    pool = FakePool()
+    drafts = StructuredResult(entities=[DraftEntity(temp_id="e1", name="P", kind="n")])
+    result = AgentRunResult(analysis="a", entities_created=0, relationships_created=0)
+
+    await service.mark_awaiting_review(
+        as_pool(pool), run_id, drafts, result, ["https://example.com/x"]
+    )
+
+    _q, args = find_call(pool, "status = 'awaiting_review'")
+    assert args[0] == run_id
+    assert json.loads(args[1])["entities"][0]["name"] == "P"
+    assert json.loads(args[2])["analysis"] == "a"
+    assert json.loads(args[3]) == ["https://example.com/x"]
+
+
 async def test_load_parked_parses_drafts_and_partial_result() -> None:
     row = make_run_row(
         pending=json.dumps({"entities": [{"temp_id": "e1", "name": "P", "kind": "n"}]}),
@@ -190,14 +215,64 @@ async def test_load_parked_parses_drafts_and_partial_result() -> None:
                 "skipped": ["fetch: x"],
             }
         ),
+        source_urls=json.dumps(["https://example.com/x"]),
     )
     parked = await service.load_parked(as_pool(FakePool(fetchrow=row)), uuid4())
     assert parked.drafts.entities[0].name == "P"
     assert parked.partial is not None
     assert parked.partial.analysis == "found things"
     assert parked.partial.skipped == ["fetch: x"]
+    assert parked.source_urls == ["https://example.com/x"]
 
 
 async def test_load_parked_tolerates_a_missing_row() -> None:
     parked = await service.load_parked(as_pool(FakePool(fetchrow=None)), uuid4())
     assert parked.drafts.entities == [] and parked.partial is None
+    assert parked.source_urls == []
+
+
+async def test_stream_run_emits_one_event_per_change_then_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.agent.service.asyncio.sleep", instant_sleep)
+
+    t0 = datetime(2026, 9, 3, tzinfo=UTC)
+    t1 = datetime(2026, 9, 3, 0, 0, 1, tzinfo=UTC)
+    rows = [
+        make_run_row(status="running", updated_at=t0),  # first poll: always emits
+        make_run_row(status="running", updated_at=t0),  # unchanged: no event
+        make_run_row(status="succeeded", updated_at=t1),  # changed + terminal: emits, then stops
+    ]
+    pool = FakePool(fetchrow=rows)
+
+    chunks = [chunk async for chunk in service.stream_run(as_pool(pool), uuid4(), uuid4())]
+
+    status_events = [c for c in chunks if c.startswith(b"event: status")]
+    assert len(status_events) == 2
+    assert b'"status": "running"' in status_events[0]
+    assert b'"status": "succeeded"' in status_events[1]
+    # Exactly 3 polls happened (one per scripted row) and then the generator
+    # returned on its own — nothing left in the FakePool's queue.
+    assert len(pool.calls) == 3
+
+
+async def test_stream_run_stops_on_the_first_awaiting_review() -> None:
+    row = make_run_row(status="awaiting_review")
+    pool = FakePool(fetchrow=row)
+
+    chunks = [chunk async for chunk in service.stream_run(as_pool(pool), uuid4(), uuid4())]
+
+    assert len(chunks) == 1
+    assert len(pool.calls) == 1
+
+
+async def test_stream_run_propagates_404_for_a_missing_run() -> None:
+    pool = FakePool(fetchrow=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        async for _ in service.stream_run(as_pool(pool), uuid4(), uuid4()):
+            pass
+    assert exc_info.value.status_code == 404

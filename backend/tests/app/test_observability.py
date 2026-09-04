@@ -72,6 +72,63 @@ def test_setup_stashes_the_provider_on_app_state(monkeypatch: pytest.MonkeyPatch
     assert app.state.tracer_provider is sentinel
 
 
+def test_get_provider_reads_app_state() -> None:
+    app = FastAPI()
+    assert observability.get_provider(app) is None
+    sentinel = object()
+    app.state.tracer_provider = sentinel
+    assert observability.get_provider(app) is sentinel
+
+
+def test_traced_is_a_noop_without_a_provider() -> None:
+    with observability.traced(None, "app.chat", "chat.turn", kind="AGENT") as span:
+        assert span is None
+
+
+def test_traced_opens_a_span_with_openinference_attributes() -> None:
+    from openinference.semconv.trace import SpanAttributes
+
+    class _FakeSpan:
+        def __init__(self) -> None:
+            self.attrs: dict[str, object] = {}
+
+        def set_attribute(self, key: str, value: object) -> None:
+            self.attrs[key] = value
+
+    class _FakeTracer:
+        def __init__(self) -> None:
+            self.opened: list[tuple[str, dict[str, object]]] = []
+            self.span = _FakeSpan()
+
+        def start_as_current_span(self, name: str, attributes: dict[str, object] | None = None):  # type: ignore[no-untyped-def]
+            from contextlib import contextmanager
+
+            @contextmanager
+            def _cm():  # type: ignore[no-untyped-def]
+                self.opened.append((name, attributes or {}))
+                yield self.span
+
+            return _cm()
+
+    class _FakeProvider:
+        def __init__(self) -> None:
+            self.tracer = _FakeTracer()
+
+        def get_tracer(self, _name: str) -> _FakeTracer:
+            return self.tracer
+
+    provider = _FakeProvider()
+    with observability.traced(
+        provider, "app.chat", "chat.turn", kind="AGENT", metadata={"user_id": "u1"}
+    ) as span:
+        assert span is provider.tracer.span
+
+    name, attributes = provider.tracer.opened[0]
+    assert name == "chat.turn"
+    assert attributes[SpanAttributes.OPENINFERENCE_SPAN_KIND] == "AGENT"
+    assert '"user_id": "u1"' in str(attributes[SpanAttributes.METADATA])
+
+
 def test_setup_worker_returns_the_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     sentinel = object()
     monkeypatch.setattr(observability, "_register_tracer_provider", lambda _s: sentinel)

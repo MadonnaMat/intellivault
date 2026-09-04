@@ -12,12 +12,13 @@ without pulling in langgraph.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from taskiq import AsyncBroker, InMemoryBroker, TaskiqEvents, TaskiqMessage, TaskiqMiddleware
 from taskiq.middlewares.taskiq_admin_middleware import TaskiqAdminMiddleware
 from taskiq.state import TaskiqState
-from taskiq_redis import ListQueueBroker
+from taskiq_redis import ListQueueBroker, RedisAsyncResultBackend
 
 from app import observability
 from app.config import Settings, get_settings
@@ -33,6 +34,12 @@ def build_broker(settings: Settings) -> AsyncBroker:
     ``BRPOP key 0`` that blocks server-side until a job arrives — a 5s client
     read timeout turns every idle moment into a crash-and-reload loop. A longer
     connect timeout likewise keeps ``.kiq()`` from failing when the box is busy.
+
+    The result backend is only actually consumed by tasks the caller waits on
+    (``search_knowledge_graph_task``, via ``.wait_result()`` — see
+    ``app.chat.graph_search``); ``run_agent``/``commit_agent_run`` stay
+    fire-and-forget (progress lives in ``agent_runs``, not the task result).
+    A short TTL keeps unread results from accumulating in Redis.
     """
     if not settings.redis_url or settings.redis_url == _MEMORY:
         return InMemoryBroker()
@@ -41,7 +48,7 @@ def build_broker(settings: Settings) -> AsyncBroker:
         queue_name="agent",
         socket_timeout=None,
         socket_connect_timeout=15,
-    )
+    ).with_result_backend(RedisAsyncResultBackend(settings.redis_url, result_ex_time=300))
     if settings.taskiq_admin_url:
         broker.add_middlewares(
             TaskiqAdminMiddleware(
@@ -53,13 +60,37 @@ def build_broker(settings: Settings) -> AsyncBroker:
     return broker
 
 
+_SPAN_KIND_BY_TASK = {
+    "run_agent": "AGENT",
+    "commit_agent_run": "AGENT",
+    "search_knowledge_graph_task": "CHAIN",
+}
+
+# Trace metadata/output is for "what was this called with, what did it
+# return" at a glance, not a full data dump — cap it so a future task adding
+# a large or sensitive argument (e.g. raw chat history) can't blow up span
+# size unbounded.
+_MAX_ATTR_LEN = 2000
+
+
+def _capped_json(value: Any) -> str:
+    text = json.dumps(value, default=str)
+    if len(text) <= _MAX_ATTR_LEN:
+        return text
+    return text[:_MAX_ATTR_LEN] + f"... ({len(text)} chars total, truncated)"
+
+
 class AgentRunSpanMiddleware(TaskiqMiddleware):
-    """One root ``agent.run`` span per task, from the worker's tracer provider.
+    """One root span per task, named for the task itself (not a blanket
+    "agent.run") — so Phoenix's trace list tells run_agent, commit_agent_run,
+    and search_knowledge_graph_task apart at a glance, from the worker's
+    tracer provider.
 
     taskiq does not carry OTel context across ``.kiq()`` — a fresh root span per
-    run is intended. The span is made the *current* context so LangChain's
-    LLM/chain spans nest under it, and the provider is flushed when the run ends
-    so the run's spans reach Phoenix even if the worker restarts right after.
+    task is intended. The span is made the *current* context so LangChain's
+    LLM/chain spans (and, for search_knowledge_graph_task, the LangGraph node
+    spans) nest under it, and the provider is flushed when the task ends so its
+    spans reach Phoenix even if the worker restarts right after.
     """
 
     def __init__(self) -> None:
@@ -73,13 +104,19 @@ class AgentRunSpanMiddleware(TaskiqMiddleware):
         provider = self._provider()
         if provider is None:
             return message
+        from openinference.semconv.trace import SpanAttributes
         from opentelemetry import context as otel_context
         from opentelemetry import trace as otel_trace
 
-        span = provider.get_tracer("app.agent").start_span(
-            "agent.run",
-            attributes={"taskiq.task": message.task_name, "taskiq.task_id": message.task_id},
-        )
+        attributes = {
+            "taskiq.task": message.task_name,
+            "taskiq.task_id": message.task_id,
+            SpanAttributes.OPENINFERENCE_SPAN_KIND: _SPAN_KIND_BY_TASK.get(
+                message.task_name, "CHAIN"
+            ),
+            SpanAttributes.METADATA: _capped_json({"args": message.args, "kwargs": message.kwargs}),
+        }
+        span = provider.get_tracer("app.agent").start_span(message.task_name, attributes=attributes)
         token = otel_context.attach(otel_trace.set_span_in_context(span))
         self._runs[message.task_id] = (span, token)
         return message
@@ -99,8 +136,16 @@ class AgentRunSpanMiddleware(TaskiqMiddleware):
 
     def post_execute(self, message: TaskiqMessage, result: Any) -> None:
         entry = self._runs.get(message.task_id)
-        if entry is not None and getattr(result, "is_err", False):
-            entry[0].set_attribute("error", True)
+        if entry is not None:
+            span = entry[0]
+            if getattr(result, "is_err", False):
+                span.set_attribute("error", True)
+            elif getattr(result, "return_value", None) is not None:
+                # "what did this call return" — a task like
+                # search_knowledge_graph_task returns its findings directly.
+                from openinference.semconv.trace import SpanAttributes
+
+                span.set_attribute(SpanAttributes.OUTPUT_VALUE, _capped_json(result.return_value))
         self._end(message.task_id)
 
     def on_error(self, message: TaskiqMessage, result: Any, exception: BaseException) -> None:

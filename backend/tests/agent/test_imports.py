@@ -17,8 +17,9 @@ import pytest
 _HEAVY = ["langgraph", "langchain_ollama", "langchain_mcp_adapters"]
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
-# What the gateway actually imports: the app itself, and the enqueue seam.
-_GATEWAY_IMPORTS = ["app.main", "app.agent.tasks", "app.agent.broker"]
+# What the gateway actually imports: the app itself, the enqueue seam, and the
+# chat router (which calls the same enqueue seam from a live request).
+_GATEWAY_IMPORTS = ["app.main", "app.agent.tasks", "app.agent.broker", "app.chat.router"]
 
 
 @pytest.mark.parametrize("module", _GATEWAY_IMPORTS)

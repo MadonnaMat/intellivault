@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     # is 3 sequential MCP round trips, so an unbounded list (e.g. "every actor
     # in <show>") can grind for many minutes.
     agent_lookup_max_entities: int = 20
+    # Pause between entities in the `lookup` node's Wikipedia enrichment loop —
+    # a broad topic's ~agent_lookup_max_entities distinct articles otherwise
+    # fire back-to-back and can trip Wikipedia's public API rate limit
+    # (observed: 429s cascading through a whole run's worth of lookups).
+    agent_lookup_pace_seconds: float = 0.3
     # Cap on entities from the caller's visible graph fed to the LLM as context
     # (ranked by relevance to the topic, then recency) — the whole graph would
     # blow a small model's context and grows unbounded with the public graph.
@@ -112,13 +117,29 @@ class Settings(BaseSettings):
     # When true, a run pauses after `lookup` at status=awaiting_review; the
     # drafted entities are only committed once POST /agent/runs/{id}/review
     # approves them.
-    agent_review_required: bool = False
+    agent_review_required: bool = True
     # taskiq-admin dashboard (optional): when `taskiq_admin_url` is set, the
     # broker reports every task's lifecycle (queued / started / finished / error)
     # to it. Empty (the default) = no reporting. The token must match the
     # dashboard container's TASKIQ_ADMIN_API_TOKEN.
     taskiq_admin_url: str = ""
     taskiq_admin_token: str = ""
+
+    # --- Chat (POST /chat, live in the gateway process) ---
+    # Shorter than agent_llm_timeout — an interactive chat turn shouldn't hold a
+    # browser tab open for minutes the way a research run can.
+    chat_llm_timeout: float = 60.0
+    # Cap on entities `search_knowledge_graph` returns per call — mirrors
+    # agent_survey_max_entities's reasoning, scaled down for an interactive turn.
+    chat_search_max_entities: int = 5
+    # How long the chat turn waits for search_knowledge_graph_task's result
+    # (it runs in the worker, same as the research agent — see
+    # app.chat.graph_search) before giving up on that tool call.
+    chat_search_timeout: float = 20.0
+    # Bounded tool-calling loop: how many decide-rounds a single chat turn may
+    # spend calling search_knowledge_graph/launch_research_agent before it must
+    # produce a plain reply.
+    chat_tool_call_max_rounds: int = 3
 
     # --- CORS ---
     # Comma-separated list of allowed frontend origins. NoDecode keeps

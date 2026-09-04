@@ -15,7 +15,7 @@ export async function registerFromForm(
 
 export async function expectSignedIn(page: Page, email: string): Promise<void> {
   await expect(page).toHaveURL(HOME);
-  await expect(page.locator("p.subtitle")).toContainText(email);
+  await expect(page.getByTestId("app-shell-user")).toContainText(email);
 }
 
 export async function loginWithPasskey(page: Page): Promise<void> {
@@ -30,7 +30,7 @@ export async function logout(page: Page): Promise<void> {
 
 export async function addPasskey(page: Page, name: string): Promise<void> {
   await page.goto("/account");
-  const rows = page.locator(".ant-list-item");
+  const rows = page.getByTestId("passkeys-list").locator(".ant-list-item");
   const before = await rows.count();
   await page.getByTestId("add-passkey-button").click();
   await page.getByTestId("add-passkey-name").fill(name);

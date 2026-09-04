@@ -16,6 +16,8 @@ describe("middleware", () => {
     expect(location("/")).toBe("http://localhost:3000/login");
     expect(location("/account")).toBe("http://localhost:3000/login");
     expect(location("/graph")).toBe("http://localhost:3000/login");
+    expect(location("/runs")).toBe("http://localhost:3000/login");
+    expect(location("/runs/abc-123")).toBe("http://localhost:3000/login");
   });
 
   it("lets anyone reach the auth pages (the pages redirect once the session checks out)", () => {
@@ -28,9 +30,19 @@ describe("middleware", () => {
     expect(location("/", { session: true })).toBeNull();
     expect(location("/account", { session: true })).toBeNull();
     expect(location("/graph", { session: true })).toBeNull();
+    expect(location("/runs", { session: true })).toBeNull();
+    expect(location("/runs/abc-123", { session: true })).toBeNull();
   });
 
-  it("guards the homepage, account page, graph page and both auth pages", () => {
-    expect(config.matcher).toEqual(["/", "/account", "/graph", "/login", "/register"]);
+  it("guards the homepage, account, graph, agent runs pages and both auth pages", () => {
+    expect(config.matcher).toEqual([
+      "/",
+      "/account",
+      "/graph",
+      "/runs",
+      "/runs/:path*",
+      "/login",
+      "/register",
+    ]);
   });
 });

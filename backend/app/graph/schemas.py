@@ -37,6 +37,9 @@ class Entity(BaseModel):
     name: str
     kind: str
     attributes: dict[str, Any]
+    # URLs the agent fetched in the run that committed this entity — see
+    # app.graph.service.attach_sources. Empty for a manually-created entity.
+    sources: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
