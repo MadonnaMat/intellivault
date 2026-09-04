@@ -115,6 +115,57 @@ describe("ChatView", () => {
     );
   });
 
+  it("shows a search card for a resolved search_knowledge_graph tool call", async () => {
+    mockChatResponse(
+      sse([
+        {
+          type: "update-state",
+          operations: [
+            {
+              type: "set",
+              path: ["messages", "0"],
+              value: { role: "user", parts: [{ type: "text", text: "What do we know?" }] },
+            },
+          ],
+        },
+        {
+          type: "update-state",
+          operations: [
+            {
+              type: "set",
+              path: ["messages", "1"],
+              value: {
+                role: "assistant",
+                parts: [
+                  { type: "text", text: "Here's what I found." },
+                  {
+                    type: "tool-call",
+                    toolCallId: "search-abc",
+                    toolName: "search_knowledge_graph",
+                    args: { query: "the transistor" },
+                    argsText: '{"query":"the transistor"}',
+                    done: true,
+                    result: {
+                      entities: [{ id: "e1", name: "Bell Labs", kind: "org" }],
+                      relationships: [],
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ]),
+    );
+
+    render(<ChatView user={user} />);
+    await sendMessage("What do we know?");
+
+    const searchCard = await screen.findByTestId("chat-search-card");
+    expect(searchCard).toHaveTextContent("the transistor");
+    expect(searchCard).toHaveTextContent("Bell Labs");
+  });
+
   it("surfaces a transport error", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("boom", { status: 500 }));
 

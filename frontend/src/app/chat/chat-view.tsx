@@ -21,6 +21,10 @@ interface LaunchResult {
   status: AgentRunStatus;
 }
 
+interface SearchResult {
+  entities: { id: string; name: string; kind: string }[];
+}
+
 const STATUS_COLOR: Record<AgentRunStatus, string> = {
   queued: "default",
   running: "processing",
@@ -67,6 +71,30 @@ function LaunchResearchAgentCard({ result }: { result?: LaunchResult }) {
   );
 }
 
+function SearchKnowledgeGraphCard({
+  args,
+  result,
+}: {
+  args?: { query?: string };
+  result?: SearchResult;
+}) {
+  if (!result) return null;
+  return (
+    <Card size="small" data-testid="chat-search-card" style={{ marginTop: 8, maxWidth: 320 }}>
+      <Typography.Text strong>Searched: {args?.query}</Typography.Text>
+      <div style={{ marginTop: 4 }}>
+        {result.entities.length ? (
+          <Typography.Text type="secondary">
+            Found in the graph: {result.entities.map((e) => e.name).join(", ")}
+          </Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">Nothing found in the graph yet.</Typography.Text>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function MarkdownText() {
   // MarkdownTextPrimitive reads the current part from context, not props —
   // this wrapper is what makes it slot into MessagePrimitive.Parts's `Text`.
@@ -101,6 +129,7 @@ function AssistantMessage() {
             tools: {
               by_name: {
                 launch_research_agent: LaunchResearchAgentCard,
+                search_knowledge_graph: SearchKnowledgeGraphCard,
               },
             },
           }}
