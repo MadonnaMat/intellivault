@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import {
   AssistantRuntimeProvider,
   AuiIf,
@@ -11,21 +12,55 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { Alert, Card, Tag, Typography } from "antd";
 import type { SessionUser } from "@/lib/auth";
+import { streamRun, type AgentRunStatus } from "@/lib/agent";
 import { useChatRuntime } from "./chat-runtime";
 
 interface LaunchResult {
   id: string;
   topic: string;
-  status: string;
+  status: AgentRunStatus;
 }
 
+const STATUS_COLOR: Record<AgentRunStatus, string> = {
+  queued: "default",
+  running: "processing",
+  awaiting_review: "gold",
+  succeeded: "green",
+  failed: "red",
+  cancelled: "default",
+};
+
 function LaunchResearchAgentCard({ result }: { result?: LaunchResult }) {
+  const [status, setStatus] = useState<AgentRunStatus | undefined>(result?.status);
+  const runId = result?.id;
+
+  useEffect(() => {
+    if (!runId) return;
+    let cancelled = false;
+    async function subscribe(id: string) {
+      try {
+        for await (const event of streamRun(id)) {
+          if (cancelled) return;
+          if (event.event === "status") {
+            setStatus((event.data as { status: AgentRunStatus }).status);
+          }
+        }
+      } catch {
+        // Live updates stop; the card keeps showing the last known status.
+      }
+    }
+    void subscribe(runId);
+    return () => {
+      cancelled = true;
+    };
+  }, [runId]);
+
   if (!result) return null;
   return (
     <Card size="small" data-testid="chat-run-card" style={{ marginTop: 8, maxWidth: 320 }}>
       <Typography.Text strong>Researching: {result.topic}</Typography.Text>
       <div style={{ marginTop: 4 }}>
-        <Tag>{result.status}</Tag>
+        <Tag color={STATUS_COLOR[status ?? result.status]}>{status ?? result.status}</Tag>
       </div>
       <Link href={`/runs/${result.id}`}>View progress</Link>
     </Card>
