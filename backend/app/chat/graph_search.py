@@ -1,44 +1,49 @@
-"""Executes the ``search_knowledge_graph`` tool: a bounded vector search over
-the caller's own visible graph, so the chat model can check existing
-knowledge before deciding whether a full research run is actually needed.
+"""Executes the ``search_knowledge_graph`` tool by handing it to the worker.
+
+The actual search runs as a small LangGraph (``app.agent.search_graph``) —
+vector search with a lexical fallback, then the edges among the hits — so it
+can branch on what it finds, the same way the research agent's own nodes do.
+That means it must run in the worker process, not here: this module only
+enqueues ``search_knowledge_graph_task`` and waits for its result, exactly
+like ``app.agent.service.enqueue_run`` hands the research agent to the worker
+— imported lazily so this stays out of the gateway's import path
+(``tests/agent/test_imports.py``).
 """
 
 from __future__ import annotations
 
-import httpx
-from neo4j import AsyncDriver
-
-from app.chat import ollama_client
 from app.config import Settings
-from app.graph import service as graph_service
 from app.graph.schemas import Entity, Relationship
 
 
 async def search_knowledge_graph(
-    driver: AsyncDriver,
-    client: httpx.AsyncClient,
-    settings: Settings,
-    owner_id: str,
-    query: str,
-) -> tuple[list[Entity], list[Relationship]]:
-    """The ``settings.chat_search_max_entities`` visible entities nearest
-    ``query`` (own + public, by embedding), plus the visible edges among
-    them — mirrors ``app.agent.nodes.survey``'s bounded vector digest."""
-    vector = await ollama_client.embed_query(client, settings, query)
-    entities = await graph_service.search_entities_by_vector(
-        driver, owner_id, vector, settings.chat_search_max_entities
-    )
-    if not entities:
-        return [], []
-    ids = [str(e.id) for e in entities]
-    relationships = await graph_service.list_visible_relationships_among(driver, owner_id, ids)
-    return entities, relationships
+    settings: Settings, owner_id: str, query: str
+) -> tuple[list[Entity], list[Relationship], str | None]:
+    """Enqueue the search graph and wait (bounded by
+    ``settings.chat_search_timeout``) for its result."""
+    from taskiq import TaskiqResultTimeoutError
+
+    from app.agent.tasks import search_knowledge_graph_task
+
+    task = await search_knowledge_graph_task.kiq(owner_id, query, settings.chat_search_max_entities)
+    try:
+        result = await task.wait_result(timeout=settings.chat_search_timeout)
+    except TaskiqResultTimeoutError:
+        return [], [], "search timed out"
+    if result.is_err:
+        return [], [], f"search failed: {result.error}"
+    data = result.return_value
+    entities = [Entity.model_validate(e) for e in data["entities"]]
+    relationships = [Relationship.model_validate(r) for r in data["relationships"]]
+    return entities, relationships, data.get("note")
 
 
-def format_search_result(entities: list[Entity], relationships: list[Relationship]) -> str:
+def format_search_result(
+    entities: list[Entity], relationships: list[Relationship], note: str | None
+) -> str:
     """Compact text digest fed back to the model as the tool's result."""
     if not entities:
-        return "No matching entities found in the knowledge graph."
+        return note or "No matching entities found in the knowledge graph."
     name_by_id = {str(e.id): e.name for e in entities}
     lines = [f"- {e.name} ({e.kind})" for e in entities]
     if relationships:

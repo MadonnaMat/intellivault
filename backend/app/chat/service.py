@@ -8,6 +8,14 @@ before deciding whether research is actually needed — then one streaming
 ``assistant_stream`` state proxy) is how progress reaches the client — see
 ``assistant_stream.state`` for the diffing rules (string assignment becomes an
 efficient append-text op once the prior value is non-empty).
+
+The whole turn is one ``chat.turn`` (AGENT-kind) Phoenix span, with each
+resolved tool call as its own ``chat.tool.*`` (TOOL-kind) child span — see
+``app.observability.traced``. ``search_knowledge_graph`` runs as a LangGraph
+in the worker (``app.chat.graph_search`` enqueues it and waits), so its own
+node-level spans nest under that tool span via the worker's tracer, not this
+one; ``launch_research_agent`` only enqueues a run here, the run's own spans
+start later, in the worker, under their own root.
 """
 
 from __future__ import annotations
@@ -19,8 +27,8 @@ from uuid import uuid4
 import asyncpg
 import httpx
 from assistant_stream import RunController
-from neo4j import AsyncDriver
 
+from app import observability
 from app.agent import service as agent_service
 from app.agent.schemas import AgentRunCreate, AgentRunSummary
 from app.auth.schemas import SessionUser
@@ -63,21 +71,32 @@ async def _run_search(
     args: dict[str, Any],
     *,
     user: SessionUser,
-    driver: AsyncDriver,
-    client: httpx.AsyncClient,
     settings: Settings,
+    tracer_provider: observability.TracerProvider | None,
 ) -> tuple[str, dict[str, Any] | None, bool]:
     """Returns (tool note for the model, tool-call part for the UI, launched=False)."""
     query = str(args.get("query", "")).strip()
     if len(query) < 3:
         note = "search_knowledge_graph was requested without a usable query; it was not run."
         return note, None, False
-    try:
-        entities, relationships = await graph_search.search_knowledge_graph(
-            driver, client, settings, str(user.id), query
-        )
-    except Exception as exc:  # noqa: BLE001 - best-effort, never fatal to the turn
-        return f"search_knowledge_graph(query={query!r}) failed: {exc}", None, False
+
+    with observability.traced(
+        tracer_provider,
+        "app.chat",
+        "chat.tool.search_knowledge_graph",
+        kind="TOOL",
+        metadata={"query": query},
+    ) as span:
+        try:
+            entities, relationships, note_from_graph = await graph_search.search_knowledge_graph(
+                settings, str(user.id), query
+            )
+        except Exception as exc:  # noqa: BLE001 - best-effort, never fatal to the turn
+            if span is not None:
+                span.set_attribute("error", True)
+            return f"search_knowledge_graph(query={query!r}) failed: {exc}", None, False
+        if span is not None:
+            span.set_attribute("chat.tool.hit_count", len(entities))
 
     call_args = {"query": query}
     part = {
@@ -92,12 +111,16 @@ async def _run_search(
             "relationships": [r.model_dump(mode="json") for r in relationships],
         },
     }
-    text = graph_search.format_search_result(entities, relationships)
+    text = graph_search.format_search_result(entities, relationships, note_from_graph)
     return f"search_knowledge_graph(query={query!r}) ->\n{text}", part, False
 
 
 async def _run_launch(
-    args: dict[str, Any], *, user: SessionUser, pool: asyncpg.Pool
+    args: dict[str, Any],
+    *,
+    user: SessionUser,
+    pool: asyncpg.Pool,
+    tracer_provider: observability.TracerProvider | None,
 ) -> tuple[str, dict[str, Any] | None, bool]:
     """Returns (tool note for the model, tool-call part for the UI, launched)."""
     topic = str(args.get("topic", "")).strip()
@@ -105,8 +128,18 @@ async def _run_launch(
         note = "launch_research_agent was requested without a usable topic; it was not run."
         return note, None, False
 
-    run = await agent_service.create_run(pool, user.id, AgentRunCreate(topic=topic))
-    await agent_service.enqueue_run(run.id)
+    with observability.traced(
+        tracer_provider,
+        "app.chat",
+        "chat.tool.launch_research_agent",
+        kind="TOOL",
+        metadata={"topic": topic},
+    ) as span:
+        run = await agent_service.create_run(pool, user.id, AgentRunCreate(topic=topic))
+        await agent_service.enqueue_run(run.id)
+        if span is not None:
+            span.set_attribute("chat.tool.run_id", str(run.id))
+
     summary = AgentRunSummary.model_validate(run.model_dump()).model_dump(mode="json")
     call_args = {"topic": topic}
     part = {
@@ -126,16 +159,17 @@ async def _call_tool(
     *,
     user: SessionUser,
     pool: asyncpg.Pool,
-    driver: AsyncDriver,
-    client: httpx.AsyncClient,
     settings: Settings,
+    tracer_provider: observability.TracerProvider | None,
 ) -> tuple[str, dict[str, Any] | None, bool]:
     name = call.get("function", {}).get("name")
     args = call.get("function", {}).get("arguments") or {}
     if name == SEARCH_KNOWLEDGE_GRAPH:
-        return await _run_search(args, user=user, driver=driver, client=client, settings=settings)
+        return await _run_search(
+            args, user=user, settings=settings, tracer_provider=tracer_provider
+        )
     if name == LAUNCH_RESEARCH_AGENT:
-        return await _run_launch(args, user=user, pool=pool)
+        return await _run_launch(args, user=user, pool=pool, tracer_provider=tracer_provider)
     return f"{name} is not a recognized tool.", None, False
 
 
@@ -144,16 +178,17 @@ async def _resolve_tools(
     *,
     user: SessionUser,
     pool: asyncpg.Pool,
-    driver: AsyncDriver,
     client: httpx.AsyncClient,
     settings: Settings,
-) -> tuple[list[str], list[dict[str, Any]]]:
+    tracer_provider: observability.TracerProvider | None,
+) -> tuple[list[str], list[dict[str, Any]], list[str]]:
     """Bounded decide-loop: offer both tools, execute whatever the model
     calls, feed each result back as its own history turn, and repeat — until
     the model stops calling tools, launches research (a natural stopping
     point for the turn), or the round cap is hit."""
     notes: list[str] = []
     parts: list[dict[str, Any]] = []
+    called: list[str] = []
     for _round in range(settings.chat_tool_call_max_rounds):
         decision = await ollama_client.chat_once(client, settings, ollama_history, tools=_TOOLS)
         tool_calls = decision.tool_calls or []
@@ -161,9 +196,11 @@ async def _resolve_tools(
             break
         launched = False
         for call in tool_calls:
+            name = call.get("function", {}).get("name")
             note, part, did_launch = await _call_tool(
-                call, user=user, pool=pool, driver=driver, client=client, settings=settings
+                call, user=user, pool=pool, settings=settings, tracer_provider=tracer_provider
             )
+            called.append(str(name))
             notes.append(note)
             if part is not None:
                 parts.append(part)
@@ -171,7 +208,7 @@ async def _resolve_tools(
             launched = launched or did_launch
         if launched:
             break
-    return notes, parts
+    return notes, parts, called
 
 
 async def run_callback(
@@ -181,7 +218,7 @@ async def run_callback(
     pool: asyncpg.Pool,
     client: httpx.AsyncClient,
     settings: Settings,
-    driver: AsyncDriver,
+    tracer_provider: observability.TracerProvider | None = None,
 ) -> None:
     if controller.state is None:
         controller.state = {"messages": []}
@@ -194,32 +231,51 @@ async def run_callback(
     history = list(controller.state["messages"])
     ollama_history = [{"role": "system", "content": system}, *_flatten(history)]
 
-    try:
-        tool_notes, tool_parts = await _resolve_tools(
-            ollama_history, user=user, pool=pool, driver=driver, client=client, settings=settings
-        )
-    except httpx.HTTPError as exc:
-        controller.add_error(f"Could not reach the language model: {exc}")
-        return
+    with observability.traced(
+        tracer_provider,
+        "app.chat",
+        "chat.turn",
+        kind="AGENT",
+        metadata={"user_id": str(user.id), "message_count": len(history)},
+    ) as span:
+        try:
+            tool_notes, tool_parts, tools_called = await _resolve_tools(
+                ollama_history,
+                user=user,
+                pool=pool,
+                client=client,
+                settings=settings,
+                tracer_provider=tracer_provider,
+            )
+        except httpx.HTTPError as exc:
+            if span is not None:
+                span.set_attribute("error", True)
+            controller.add_error(f"Could not reach the language model: {exc}")
+            return
 
-    assistant_message: dict[str, Any] = {
-        "role": "assistant",
-        "parts": [{"type": "text", "text": ""}, *tool_parts],
-    }
-    controller.state["messages"].append(assistant_message)
+        if span is not None and tools_called:
+            span.set_attribute("chat.tools_called", tools_called)
 
-    # Built from `history` (pre-placeholder), not controller.state["messages"] —
-    # a trailing *empty* assistant turn in the sent history confuses some
-    # models' chat templates into emitting literal <think> tags even with
-    # think=False (reproduced directly against Ollama's /api/chat).
-    reply_history = [{"role": "system", "content": system}, *_flatten(history)]
-    for note in tool_notes:
-        reply_history.append({"role": "tool", "content": note})
+        assistant_message: dict[str, Any] = {
+            "role": "assistant",
+            "parts": [{"type": "text", "text": ""}, *tool_parts],
+        }
+        controller.state["messages"].append(assistant_message)
 
-    try:
-        text = ""
-        async for delta in ollama_client.chat_stream(client, settings, reply_history):
-            text += delta
-            controller.state["messages"][-1]["parts"][0]["text"] = text
-    except httpx.HTTPError as exc:
-        controller.add_error(f"Could not reach the language model: {exc}")
+        # Built from `history` (pre-placeholder), not controller.state["messages"] —
+        # a trailing *empty* assistant turn in the sent history confuses some
+        # models' chat templates into emitting literal <think> tags even with
+        # think=False (reproduced directly against Ollama's /api/chat).
+        reply_history = [{"role": "system", "content": system}, *_flatten(history)]
+        for note in tool_notes:
+            reply_history.append({"role": "tool", "content": note})
+
+        try:
+            text = ""
+            async for delta in ollama_client.chat_stream(client, settings, reply_history):
+                text += delta
+                controller.state["messages"][-1]["parts"][0]["text"] = text
+        except httpx.HTTPError as exc:
+            if span is not None:
+                span.set_attribute("error", True)
+            controller.add_error(f"Could not reach the language model: {exc}")

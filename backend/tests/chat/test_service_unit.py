@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import contextmanager
 from typing import Any, cast
 from uuid import uuid4
 
 import asyncpg
 import httpx
 import pytest
-from neo4j import AsyncDriver
 
 from app.agent import service as agent_service
 from app.agent.schemas import AgentRun, AgentRunCreate
@@ -21,7 +21,6 @@ from tests.chat.conftest import make_settings, make_user, new_controller, now, u
 
 _POOL = cast(asyncpg.Pool, None)
 _CLIENT = cast(httpx.AsyncClient, None)
-_DRIVER = cast(AsyncDriver, None)
 
 
 def _stub_ollama(
@@ -91,7 +90,6 @@ async def test_plain_reply_appends_streamed_text(monkeypatch: pytest.MonkeyPatch
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=make_settings(),
     )
 
@@ -128,7 +126,6 @@ async def test_tool_call_launches_the_research_agent(monkeypatch: pytest.MonkeyP
         user,
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=make_settings(),
     )
 
@@ -175,10 +172,10 @@ async def test_search_tool_result_feeds_into_the_reply(monkeypatch: pytest.Monke
     )
 
     async def fake_search(
-        driver: Any, client: Any, settings: Any, owner_id: str, query: str
-    ) -> tuple[list[Entity], list[Relationship]]:
+        settings: Any, owner_id: str, query: str
+    ) -> tuple[list[Entity], list[Relationship], str | None]:
         assert query == "transistor"
-        return [_entity("Bell Labs")], []
+        return [_entity("Bell Labs")], [], None
 
     monkeypatch.setattr(graph_search, "search_knowledge_graph", fake_search)
     # A search that never "launches" would otherwise keep looping up to the
@@ -194,7 +191,6 @@ async def test_search_tool_result_feeds_into_the_reply(monkeypatch: pytest.Monke
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=settings,
     )
 
@@ -219,10 +215,12 @@ async def test_search_tool_short_query_is_not_run(monkeypatch: pytest.MonkeyPatc
     )
     called = False
 
-    async def fake_search(*args: Any, **kwargs: Any) -> tuple[list[Entity], list[Relationship]]:
+    async def fake_search(
+        *args: Any, **kwargs: Any
+    ) -> tuple[list[Entity], list[Relationship], str | None]:
         nonlocal called
         called = True
-        return [], []
+        return [], [], None
 
     monkeypatch.setattr(graph_search, "search_knowledge_graph", fake_search)
     _stub_ollama(monkeypatch, decision=decision, reply_deltas=["Can you say more?"])
@@ -234,7 +232,6 @@ async def test_search_tool_short_query_is_not_run(monkeypatch: pytest.MonkeyPatc
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=make_settings(),
     )
 
@@ -252,7 +249,9 @@ async def test_search_tool_failure_is_non_fatal(monkeypatch: pytest.MonkeyPatch)
         ],
     )
 
-    async def failing_search(*args: Any, **kwargs: Any) -> tuple[list[Entity], list[Relationship]]:
+    async def failing_search(
+        *args: Any, **kwargs: Any
+    ) -> tuple[list[Entity], list[Relationship], str | None]:
         raise RuntimeError("neo4j down")
 
     monkeypatch.setattr(graph_search, "search_knowledge_graph", failing_search)
@@ -267,7 +266,6 @@ async def test_search_tool_failure_is_non_fatal(monkeypatch: pytest.MonkeyPatch)
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=settings,
     )
 
@@ -288,8 +286,10 @@ async def test_tool_loop_stops_at_the_round_cap_without_a_launch(
         ],
     )
 
-    async def fake_search(*args: Any, **kwargs: Any) -> tuple[list[Entity], list[Relationship]]:
-        return [_entity("Bell Labs")], []
+    async def fake_search(
+        *args: Any, **kwargs: Any
+    ) -> tuple[list[Entity], list[Relationship], str | None]:
+        return [_entity("Bell Labs")], [], None
 
     monkeypatch.setattr(graph_search, "search_knowledge_graph", fake_search)
     settings = make_settings()
@@ -302,7 +302,6 @@ async def test_tool_loop_stops_at_the_round_cap_without_a_launch(
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=settings,
     )
 
@@ -329,7 +328,6 @@ async def test_short_topic_is_not_launched(monkeypatch: pytest.MonkeyPatch) -> N
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=make_settings(),
     )
 
@@ -357,7 +355,6 @@ async def test_decide_call_failure_adds_error_and_stops(monkeypatch: pytest.Monk
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=make_settings(),
     )
 
@@ -382,12 +379,102 @@ async def test_reply_call_failure_keeps_partial_text(monkeypatch: pytest.MonkeyP
         make_user(),
         pool=_POOL,
         client=_CLIENT,
-        driver=_DRIVER,
         settings=make_settings(),
     )
 
     messages = list(controller.state["messages"])
     assert messages[-1]["parts"] == [{"type": "text", "text": "partial"}]
+
+
+class _FakeSpan:
+    def __init__(self) -> None:
+        self.attrs: dict[str, Any] = {}
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self.attrs[key] = value
+
+
+class _FakeTracer:
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, dict[str, Any], _FakeSpan]] = []
+
+    @contextmanager
+    def start_as_current_span(self, name: str, attributes: dict[str, Any] | None = None) -> Any:
+        span = _FakeSpan()
+        self.opened.append((name, attributes or {}, span))
+        yield span
+
+
+class _FakeProvider:
+    def __init__(self) -> None:
+        self.tracer = _FakeTracer()
+
+    def get_tracer(self, _name: str) -> _FakeTracer:
+        return self.tracer
+
+
+async def test_chat_turn_and_tool_calls_open_spans_when_tracing_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decision = OllamaMessage(
+        role="assistant",
+        content="",
+        tool_calls=[
+            {"function": {"name": "search_knowledge_graph", "arguments": {"query": "transistor"}}}
+        ],
+    )
+
+    async def fake_search(
+        *args: Any, **kwargs: Any
+    ) -> tuple[list[Entity], list[Relationship], str | None]:
+        return [_entity("Bell Labs")], [], None
+
+    monkeypatch.setattr(graph_search, "search_knowledge_graph", fake_search)
+    settings = make_settings()
+    monkeypatch.setattr(settings, "chat_tool_call_max_rounds", 1)
+    _stub_ollama(monkeypatch, decision=decision, reply_deltas=["Found it."])
+    provider = _FakeProvider()
+
+    controller = await new_controller({"messages": []})
+    await service.run_callback(
+        controller,
+        _request([user_message("what do we know?")]),
+        make_user(),
+        pool=_POOL,
+        client=_CLIENT,
+        settings=settings,
+        tracer_provider=provider,
+    )
+
+    names = [name for name, _attrs, _span in provider.tracer.opened]
+    assert names == ["chat.turn", "chat.tool.search_knowledge_graph"]  # outer opens first
+
+    turn_name, turn_attrs, _turn_span = provider.tracer.opened[0]
+    assert turn_attrs["openinference.span.kind"] == "AGENT"
+
+    tool_name, tool_attrs, tool_span = provider.tracer.opened[1]
+    assert tool_attrs["openinference.span.kind"] == "TOOL"
+    assert tool_span.attrs["chat.tool.hit_count"] == 1
+
+
+async def test_no_tracer_provider_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    _stub_ollama(
+        monkeypatch,
+        decision=OllamaMessage(role="assistant", content="", tool_calls=None),
+        reply_deltas=["hi"],
+    )
+    controller = await new_controller({"messages": []})
+    await service.run_callback(
+        controller,
+        _request([user_message("hi")]),
+        make_user(),
+        pool=_POOL,
+        client=_CLIENT,
+        settings=make_settings(),
+        tracer_provider=None,
+    )
+    messages = list(controller.state["messages"])
+    assert messages[-1]["parts"] == [{"type": "text", "text": "hi"}]
 
 
 def _request(messages: list[dict[str, Any]]) -> AssistantRequest:

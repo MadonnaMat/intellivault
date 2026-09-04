@@ -10,13 +10,15 @@ from uuid import uuid4
 import pytest
 
 from app.agent.llm import StructuredOutputError
-from app.agent.tasks import _commit_agent_run, _guarded, _run_agent
+from app.agent.tasks import _commit_agent_run, _guarded, _run_agent, _search_knowledge_graph
 from app.config import Settings
 from tests.agent.conftest import (
     FakeChatModel,
+    FakeEmbedder,
     FakePool,
     FakeSearchTool,
     as_pool,
+    edge_row,
     fake_infra,
     find_call,
     node_row,
@@ -189,3 +191,30 @@ async def test_run_agent_marks_failed_and_reraises_on_a_node_error() -> None:
     _q, fail_args = find_call(pool, "status = 'failed'")
     assert fail_args[0] == _RUN
     assert "StructuredOutputError" in fail_args[1]
+
+
+async def test_search_knowledge_graph_task_returns_json_safe_results() -> None:
+    driver = FakeNeo4jDriver([node_row("Bell Labs")], [edge_row()])
+    infra = fake_infra(
+        driver=driver, pool=FakePool(), embedder=FakeEmbedder(vector=[0.1, 0.2, 0.3])
+    )
+
+    result = await _search_knowledge_graph(str(_OWNER), "bell labs", 5, infra)
+
+    assert result["entities"][0]["name"] == "Bell Labs"
+    assert isinstance(result["entities"][0]["id"], str)  # UUID serialised, not a raw object
+    assert len(result["relationships"]) == 1
+    assert result["note"] is None
+    json.dumps(result)  # the taskiq result backend needs this to actually serialise
+
+
+async def test_search_knowledge_graph_task_surfaces_the_no_match_note() -> None:
+    driver = FakeNeo4jDriver([], [node_row("Random Co")], [])
+    infra = fake_infra(
+        driver=driver, pool=FakePool(), embedder=FakeEmbedder(vector=[0.1, 0.2, 0.3])
+    )
+
+    result = await _search_knowledge_graph(str(_OWNER), "bell labs", 5, infra)
+
+    assert result["entities"] == []
+    assert result["note"] == "no matching entities found in the knowledge graph"

@@ -1,130 +1,174 @@
-"""app.chat.graph_search — the search_knowledge_graph tool's execution."""
+"""app.chat.graph_search — enqueue search_knowledge_graph_task and wait."""
 
 from __future__ import annotations
 
-from typing import cast
-from uuid import UUID, uuid4
+from typing import Any
+from uuid import uuid4
 
-import httpx
 import pytest
-from neo4j import AsyncDriver
+from taskiq import TaskiqResult, TaskiqResultTimeoutError
 
-from app.chat import graph_search, ollama_client
-from app.graph import service as graph_service
-from app.graph.schemas import Entity, Relationship
-from tests.chat.conftest import make_settings, now
+from app.agent import tasks as agent_tasks
+from app.chat import graph_search
+from tests.chat.conftest import make_settings
 
-_CLIENT = cast(httpx.AsyncClient, None)
-_DRIVER = cast(AsyncDriver, None)
 _OWNER = str(uuid4())
 
 
-def _entity(name: str, kind: str = "org") -> Entity:
-    return Entity(
-        id=uuid4(),
-        owner_id=uuid4(),
-        visibility="private",
-        name=name,
-        kind=kind,
-        attributes={},
-        created_at=now(),
-        updated_at=now(),
+class _FakeTask:
+    def __init__(self, result: TaskiqResult[Any] | None = None, *, timeout: bool = False) -> None:
+        self._result = result
+        self._timeout = timeout
+        self.waited_timeout: float | None = None
+
+    async def wait_result(self, timeout: float) -> TaskiqResult[Any]:
+        self.waited_timeout = timeout
+        if self._timeout:
+            raise TaskiqResultTimeoutError(timeout=timeout)
+        assert self._result is not None
+        return self._result
+
+
+def _ok_result(**data: Any) -> TaskiqResult[Any]:
+    return TaskiqResult(is_err=False, log=None, return_value=data, execution_time=0.01)
+
+
+def _err_result(error: str) -> TaskiqResult[Any]:
+    return TaskiqResult(
+        is_err=True, log=None, return_value=None, execution_time=0.01, error=RuntimeError(error)
     )
 
 
-def _relationship(from_id: UUID, to_id: UUID, kind: str = "employs") -> Relationship:
-    return Relationship(
-        id=uuid4(),
-        owner_id=uuid4(),
-        from_id=from_id,
-        to_id=to_id,
-        kind=kind,
-        visibility="private",
-        created_at=now(),
-        updated_at=now(),
-    )
-
-
-async def test_search_knowledge_graph_embeds_then_searches_then_fetches_edges(
+async def test_search_knowledge_graph_enqueues_and_maps_the_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bell_labs = _entity("Bell Labs")
-    shockley = _entity("Shockley")
-    edge = _relationship(bell_labs.id, shockley.id)
+    entity_id = str(uuid4())
+    owner_id = str(uuid4())
+    task = _FakeTask(
+        _ok_result(
+            entities=[
+                {
+                    "id": entity_id,
+                    "owner_id": owner_id,
+                    "visibility": "private",
+                    "name": "Bell Labs",
+                    "kind": "org",
+                    "attributes": {},
+                    "sources": [],
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                }
+            ],
+            relationships=[],
+            note=None,
+        )
+    )
+    seen: dict[str, Any] = {}
 
-    async def fake_embed(client: object, settings: object, text: str) -> list[float]:
-        assert text == "the transistor"
-        return [0.1, 0.2]
+    async def fake_kiq(owner_id_: str, query: str, limit: int) -> _FakeTask:
+        seen["args"] = (owner_id_, query, limit)
+        return task
 
-    async def fake_search(
-        driver: object, owner_id: str, embedding: list[float], k: int
-    ) -> list[Entity]:
-        assert owner_id == _OWNER
-        assert embedding == [0.1, 0.2]
-        assert k == make_settings().chat_search_max_entities
-        return [bell_labs, shockley]
+    monkeypatch.setattr(agent_tasks.search_knowledge_graph_task, "kiq", fake_kiq)
+    settings = make_settings()
 
-    async def fake_edges(
-        driver: object, owner_id: str, entity_ids: list[str]
-    ) -> list[Relationship]:
-        assert set(entity_ids) == {str(bell_labs.id), str(shockley.id)}
-        return [edge]
-
-    monkeypatch.setattr(ollama_client, "embed_query", fake_embed)
-    monkeypatch.setattr(graph_service, "search_entities_by_vector", fake_search)
-    monkeypatch.setattr(graph_service, "list_visible_relationships_among", fake_edges)
-
-    entities, relationships = await graph_search.search_knowledge_graph(
-        _DRIVER, _CLIENT, make_settings(), _OWNER, "the transistor"
+    entities, relationships, note = await graph_search.search_knowledge_graph(
+        settings, _OWNER, "Bell Labs"
     )
 
-    assert entities == [bell_labs, shockley]
-    assert relationships == [edge]
+    assert seen["args"] == (_OWNER, "Bell Labs", settings.chat_search_max_entities)
+    assert task.waited_timeout == settings.chat_search_timeout
+    assert [e.name for e in entities] == ["Bell Labs"]
+    assert relationships == []
+    assert note is None
 
 
-async def test_search_knowledge_graph_short_circuits_on_no_hits(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    edges_called = False
+async def test_search_knowledge_graph_times_out_gracefully(monkeypatch: pytest.MonkeyPatch) -> None:
+    task = _FakeTask(timeout=True)
 
-    async def fake_embed(client: object, settings: object, text: str) -> list[float]:
-        return [0.1]
+    async def fake_kiq(*args: Any, **kwargs: Any) -> _FakeTask:
+        return task
 
-    async def fake_search(*args: object, **kwargs: object) -> list[Entity]:
-        return []
+    monkeypatch.setattr(agent_tasks.search_knowledge_graph_task, "kiq", fake_kiq)
 
-    async def fake_edges(*args: object, **kwargs: object) -> list[Relationship]:
-        nonlocal edges_called
-        edges_called = True
-        return []
-
-    monkeypatch.setattr(ollama_client, "embed_query", fake_embed)
-    monkeypatch.setattr(graph_service, "search_entities_by_vector", fake_search)
-    monkeypatch.setattr(graph_service, "list_visible_relationships_among", fake_edges)
-
-    entities, relationships = await graph_search.search_knowledge_graph(
-        _DRIVER, _CLIENT, make_settings(), _OWNER, "nothing here"
+    entities, relationships, note = await graph_search.search_knowledge_graph(
+        make_settings(), _OWNER, "Bell Labs"
     )
 
     assert entities == []
     assert relationships == []
-    assert edges_called is False  # bounded: no edge lookup when there's nothing to bound it to
+    assert note == "search timed out"
+
+
+async def test_search_knowledge_graph_surfaces_a_worker_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task = _FakeTask(_err_result("neo4j down"))
+
+    async def fake_kiq(*args: Any, **kwargs: Any) -> _FakeTask:
+        return task
+
+    monkeypatch.setattr(agent_tasks.search_knowledge_graph_task, "kiq", fake_kiq)
+
+    entities, relationships, note = await graph_search.search_knowledge_graph(
+        make_settings(), _OWNER, "Bell Labs"
+    )
+
+    assert entities == []
+    assert relationships == []
+    assert note == "search failed: neo4j down"
 
 
 def test_format_search_result_lists_entities_and_relationships() -> None:
-    bell_labs = _entity("Bell Labs")
-    shockley = _entity("Shockley", kind="person")
-    edge = _relationship(bell_labs.id, shockley.id, kind="employs")
+    from app.graph.schemas import Entity, Relationship
+    from tests.chat.conftest import now
 
-    text = graph_search.format_search_result([bell_labs, shockley], [edge])
+    bell_labs = Entity(
+        id=uuid4(),
+        owner_id=uuid4(),
+        visibility="private",
+        name="Bell Labs",
+        kind="org",
+        attributes={},
+        created_at=now(),
+        updated_at=now(),
+    )
+    shockley = Entity(
+        id=uuid4(),
+        owner_id=uuid4(),
+        visibility="private",
+        name="Shockley",
+        kind="person",
+        attributes={},
+        created_at=now(),
+        updated_at=now(),
+    )
+    edge = Relationship(
+        id=uuid4(),
+        owner_id=uuid4(),
+        from_id=bell_labs.id,
+        to_id=shockley.id,
+        kind="employs",
+        visibility="private",
+        created_at=now(),
+        updated_at=now(),
+    )
+
+    text = graph_search.format_search_result([bell_labs, shockley], [edge], None)
 
     assert "- Bell Labs (org)" in text
     assert "- Shockley (person)" in text
     assert "Bell Labs -[employs]-> Shockley" in text
 
 
-def test_format_search_result_empty() -> None:
+def test_format_search_result_empty_uses_the_graph_notes_note() -> None:
+    assert graph_search.format_search_result([], [], "no matching entities") == (
+        "no matching entities"
+    )
+
+
+def test_format_search_result_empty_default_message() -> None:
     assert (
-        graph_search.format_search_result([], [])
+        graph_search.format_search_result([], [], None)
         == "No matching entities found in the knowledge graph."
     )

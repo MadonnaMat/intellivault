@@ -14,9 +14,8 @@ from fastapi.testclient import TestClient
 from app.auth.dependencies import current_user
 from app.auth.schemas import SessionUser
 from app.chat import service as chat_service
-from app.chat.deps import get_chat_http_client
+from app.chat.deps import get_chat_http_client, get_tracer_provider
 from app.db import get_pool
-from app.graph.db import get_driver
 from app.main import create_app
 
 _USER = SessionUser(id=uuid4(), email="ada@example.com", display_name="Ada")
@@ -39,7 +38,7 @@ def chat_client(*, authenticated: bool = True) -> Iterator[TestClient]:
         app.dependency_overrides[current_user] = lambda: _USER
     app.dependency_overrides[get_pool] = lambda: None
     app.dependency_overrides[get_chat_http_client] = lambda: None
-    app.dependency_overrides[get_driver] = lambda: None
+    app.dependency_overrides[get_tracer_provider] = lambda: None
     try:
         with TestClient(app) as client:
             yield client
@@ -54,7 +53,7 @@ async def _fake_run_callback(
     pool: Any,
     client: Any,
     settings: Any,
-    driver: Any,
+    tracer_provider: Any,
 ) -> None:
     if controller.state is None:
         controller.state = {"messages": []}

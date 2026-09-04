@@ -50,19 +50,6 @@ async def chat_once(
     return OllamaMessage.model_validate(data["message"])
 
 
-async def embed_query(client: httpx.AsyncClient, settings: Settings, text: str) -> list[float]:
-    """Embed one string via Ollama's native ``/api/embed`` endpoint — the
-    ``search_knowledge_graph`` tool's vector, computed live in the gateway
-    (the worker instead uses ``langchain_ollama.OllamaEmbeddings``, see
-    ``app/agent/deps.py``, which this module deliberately avoids importing)."""
-    payload = {"model": settings.ollama_embed_model, "input": text}
-    response = await client.post(f"{settings.ollama_url}/api/embed", json=payload)
-    response.raise_for_status()
-    data = response.json()
-    embedding: list[float] = data["embeddings"][0]
-    return embedding
-
-
 async def chat_stream(
     client: httpx.AsyncClient,
     settings: Settings,

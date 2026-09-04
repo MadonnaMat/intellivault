@@ -127,6 +127,10 @@ class Settings(BaseSettings):
     # Cap on entities `search_knowledge_graph` returns per call — mirrors
     # agent_survey_max_entities's reasoning, scaled down for an interactive turn.
     chat_search_max_entities: int = 5
+    # How long the chat turn waits for search_knowledge_graph_task's result
+    # (it runs in the worker, same as the research agent — see
+    # app.chat.graph_search) before giving up on that tool call.
+    chat_search_timeout: float = 20.0
     # Bounded tool-calling loop: how many decide-rounds a single chat turn may
     # spend calling search_knowledge_graph/launch_research_agent before it must
     # produce a plain reply.

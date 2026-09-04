@@ -2,7 +2,11 @@
 
 ``run_agent`` runs the research graph (and, when review isn't required, commits).
 ``commit_agent_run`` is the second phase — it runs after an approval and commits
-the parked drafts. ``_*`` are the real logic, unit-tested with a fake WorkerInfra.
+the parked drafts. ``search_knowledge_graph_task`` runs the small bounded search
+graph for the chat tool of the same name and returns its result directly (no
+``agent_runs`` row — ``app.chat.graph_search`` enqueues it and awaits the result
+via taskiq's result backend). ``_*`` are the real logic, unit-tested with a fake
+WorkerInfra.
 
 langgraph / langchain / the node modules are imported *inside* the task bodies,
 never at module load: ``service.enqueue_run`` imports this module on the gateway
@@ -14,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import asyncpg
@@ -123,6 +127,22 @@ async def _commit_agent_run(run_id: str, infra: WorkerInfra) -> None:
     await _finish_succeeded(pool, rid, state)
 
 
+async def _search_knowledge_graph(
+    owner_id: str, query: str, limit: int, infra: WorkerInfra
+) -> dict[str, Any]:
+    from app.agent.deps import AgentDeps
+    from app.agent.search_graph import build_search_graph, initial_state
+
+    deps = AgentDeps.from_infra(infra)
+    graph = build_search_graph(deps)
+    result = await graph.ainvoke(initial_state(owner_id, query, limit))
+    return {
+        "entities": [e.model_dump(mode="json") for e in result["entities"]],
+        "relationships": [r.model_dump(mode="json") for r in result["relationships"]],
+        "note": result.get("note"),
+    }
+
+
 @broker.task
 async def run_agent(run_id: str) -> None:  # pragma: no cover - thin wrapper
     await _run_agent(run_id, broker.state.infra)
@@ -131,3 +151,10 @@ async def run_agent(run_id: str) -> None:  # pragma: no cover - thin wrapper
 @broker.task
 async def commit_agent_run(run_id: str) -> None:  # pragma: no cover - thin wrapper
     await _commit_agent_run(run_id, broker.state.infra)
+
+
+@broker.task
+async def search_knowledge_graph_task(  # pragma: no cover - thin wrapper
+    owner_id: str, query: str, limit: int
+) -> dict[str, Any]:
+    return await _search_knowledge_graph(owner_id, query, limit, broker.state.infra)
