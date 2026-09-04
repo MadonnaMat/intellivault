@@ -10,6 +10,7 @@ the prior value is non-empty).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import asyncpg
@@ -96,12 +97,14 @@ async def run_callback(
             run = await agent_service.create_run(pool, user.id, AgentRunCreate(topic=topic))
             await agent_service.enqueue_run(run.id)
             summary = AgentRunSummary.model_validate(run.model_dump()).model_dump(mode="json")
+            args = {"topic": topic}
             assistant_message["parts"].append(
                 {
                     "type": "tool-call",
                     "toolCallId": f"launch-{run.id}",
                     "toolName": LAUNCH_RESEARCH_AGENT,
-                    "argsText": f'{{"topic": "{topic}"}}',
+                    "args": args,
+                    "argsText": json.dumps(args),
                     "done": True,
                     "result": summary,
                 }

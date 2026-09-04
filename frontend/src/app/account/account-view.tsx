@@ -67,7 +67,7 @@ export function AccountView({
 
   return (
     <AppShell user={user}>
-      <main>
+      <div className="page-shell">
         <h1>Account &amp; passkeys</h1>
 
         {error && (
@@ -170,7 +170,7 @@ export function AccountView({
             onPressEnter={onAddPasskey}
           />
         </Modal>
-      </main>
+      </div>
     </AppShell>
   );
 }

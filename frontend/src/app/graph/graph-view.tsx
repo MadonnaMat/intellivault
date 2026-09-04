@@ -264,7 +264,7 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
 
   return (
     <AppShell user={user}>
-      <main className="graph-shell">
+      <div className="page-shell graph-shell">
         <h1>Knowledge graph</h1>
 
         {error && (
@@ -395,7 +395,7 @@ export function GraphView({ user, initial }: { user: SessionUser; initial: Graph
             onRow={(rel) => ({ "data-testid": `rel-row-${rel.id}` }) as object}
           />
         </Card>
-      </main>
+      </div>
     </AppShell>
   );
 }

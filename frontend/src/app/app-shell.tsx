@@ -30,13 +30,18 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
           alignItems: "center",
           justifyContent: "space-between",
           borderBottom: "1px solid #f0f0f0",
+          height: "auto",
+          minHeight: 56,
+          padding: "12px 24px",
+          flexWrap: "wrap",
+          rowGap: 8,
         }}
       >
-        <Space size="large">
+        <Space size="large" wrap>
           <Typography.Text strong style={{ fontSize: 16 }}>
             IntelliVault
           </Typography.Text>
-          <Space size="middle" data-testid="app-nav">
+          <Space size="middle" wrap data-testid="app-nav">
             {NAV_ITEMS.map((item) => {
               const active = isActive(pathname, item.href);
               return (
@@ -56,7 +61,7 @@ export function AppShell({ user, children }: { user: SessionUser; children: Reac
             })}
           </Space>
         </Space>
-        <Space size="middle">
+        <Space size="middle" wrap>
           <Typography.Text type="secondary" data-testid="app-shell-user">
             {user.display_name} ({user.email})
           </Typography.Text>
