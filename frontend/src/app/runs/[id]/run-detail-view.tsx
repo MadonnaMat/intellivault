@@ -165,10 +165,10 @@ export function RunDetailView({
         </Space>
 
         {streamNotice && (
-          <Alert type="warning" showIcon message={streamNotice} style={{ marginBottom: 16 }} />
+          <Alert type="warning" showIcon title={streamNotice} style={{ marginBottom: 16 }} />
         )}
         {error && (
-          <Alert data-testid="run-error" type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+          <Alert data-testid="run-error" type="error" showIcon title={error} style={{ marginBottom: 16 }} />
         )}
 
         {run.plan && <PlanCard plan={run.plan} />}

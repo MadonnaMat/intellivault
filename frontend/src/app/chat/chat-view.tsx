@@ -186,7 +186,7 @@ export function ChatView({ user }: { user: SessionUser }) {
             data-testid="chat-error"
             type="error"
             showIcon
-            message={error}
+            title={error}
             style={{ marginBottom: 16 }}
           />
         )}
