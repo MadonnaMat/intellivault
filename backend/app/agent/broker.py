@@ -66,6 +66,19 @@ _SPAN_KIND_BY_TASK = {
     "search_knowledge_graph_task": "CHAIN",
 }
 
+# Trace metadata/output is for "what was this called with, what did it
+# return" at a glance, not a full data dump — cap it so a future task adding
+# a large or sensitive argument (e.g. raw chat history) can't blow up span
+# size unbounded.
+_MAX_ATTR_LEN = 2000
+
+
+def _capped_json(value: Any) -> str:
+    text = json.dumps(value, default=str)
+    if len(text) <= _MAX_ATTR_LEN:
+        return text
+    return text[:_MAX_ATTR_LEN] + f"... ({len(text)} chars total, truncated)"
+
 
 class AgentRunSpanMiddleware(TaskiqMiddleware):
     """One root span per task, named for the task itself (not a blanket
@@ -101,9 +114,7 @@ class AgentRunSpanMiddleware(TaskiqMiddleware):
             SpanAttributes.OPENINFERENCE_SPAN_KIND: _SPAN_KIND_BY_TASK.get(
                 message.task_name, "CHAIN"
             ),
-            SpanAttributes.METADATA: json.dumps(
-                {"args": message.args, "kwargs": message.kwargs}, default=str
-            ),
+            SpanAttributes.METADATA: _capped_json({"args": message.args, "kwargs": message.kwargs}),
         }
         span = provider.get_tracer("app.agent").start_span(message.task_name, attributes=attributes)
         token = otel_context.attach(otel_trace.set_span_in_context(span))
@@ -134,9 +145,7 @@ class AgentRunSpanMiddleware(TaskiqMiddleware):
                 # search_knowledge_graph_task returns its findings directly.
                 from openinference.semconv.trace import SpanAttributes
 
-                span.set_attribute(
-                    SpanAttributes.OUTPUT_VALUE, json.dumps(result.return_value, default=str)
-                )
+                span.set_attribute(SpanAttributes.OUTPUT_VALUE, _capped_json(result.return_value))
         self._end(message.task_id)
 
     def on_error(self, message: TaskiqMessage, result: Any, exception: BaseException) -> None:

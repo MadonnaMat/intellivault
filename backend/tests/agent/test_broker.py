@@ -259,3 +259,56 @@ def test_post_execute_skips_output_when_return_value_is_none() -> None:
     from openinference.semconv.trace import SpanAttributes
 
     assert SpanAttributes.OUTPUT_VALUE not in provider.tracer.span.attrs
+
+
+def test_capped_json_passes_small_values_through_unchanged() -> None:
+    from app.agent.broker import _capped_json
+
+    assert _capped_json({"query": "transistor"}) == '{"query": "transistor"}'
+
+
+def test_capped_json_truncates_oversized_values() -> None:
+    from app.agent.broker import _MAX_ATTR_LEN, _capped_json
+
+    capped = _capped_json({"history": "x" * 10_000})
+
+    assert len(capped) < 10_000
+    assert capped.startswith('{"history": "' + "x" * 10)
+    assert "truncated" in capped
+    assert len(capped) <= _MAX_ATTR_LEN + 40  # the appended "... (N chars, truncated)" note
+
+
+def test_post_execute_caps_an_oversized_return_value() -> None:
+    from openinference.semconv.trace import SpanAttributes
+
+    from app.agent.broker import _MAX_ATTR_LEN
+
+    provider = _Provider()
+    mw = _middleware(provider)
+    mw.pre_execute(_Msg())  # type: ignore[arg-type]
+    result = type("R", (), {"is_err": False, "return_value": {"blob": "y" * 10_000}})()
+
+    mw.post_execute(_Msg(), result)  # type: ignore[arg-type]
+
+    output = provider.tracer.span.attrs[SpanAttributes.OUTPUT_VALUE]
+    assert len(output) <= _MAX_ATTR_LEN + 40
+    assert "truncated" in output
+
+
+def test_pre_execute_caps_oversized_task_args() -> None:
+    from openinference.semconv.trace import SpanAttributes
+
+    from app.agent.broker import _MAX_ATTR_LEN
+
+    provider = _Provider()
+    mw = _middleware(provider)
+
+    class _BigMsg(_Msg):
+        kwargs = {"history": "z" * 10_000}
+
+    mw.pre_execute(_BigMsg())  # type: ignore[arg-type]
+
+    _name, attributes = provider.tracer.opened[0]
+    metadata = attributes[SpanAttributes.METADATA]
+    assert len(metadata) <= _MAX_ATTR_LEN + 40
+    assert "truncated" in metadata
