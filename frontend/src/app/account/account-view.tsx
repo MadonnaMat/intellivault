@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Alert, Button, Card, Form, Input, List, Modal, Space, Typography } from "antd";
+import { Alert, Button, Card, Form, Input, List, Modal, Typography } from "antd";
+import type { HealthResult } from "@/lib/health";
 import {
   addPasskey,
   removeCredential,
@@ -12,7 +12,8 @@ import {
   type SessionUser,
 } from "@/lib/auth";
 import { useAsyncAction } from "@/lib/use-async-action";
-import { LogoutButton } from "../logout-button";
+import { AppShell } from "../app-shell";
+import { HealthCard } from "../health-card";
 
 interface ProfileValues {
   email: string;
@@ -28,9 +29,11 @@ function describeCredential(cred: CredentialSummary): string {
 export function AccountView({
   user,
   credentials,
+  health,
 }: {
   user: SessionUser;
   credentials: CredentialSummary[];
+  health: HealthResult;
 }) {
   const router = useRouter();
   const { loading, error, run } = useAsyncAction();
@@ -63,110 +66,110 @@ export function AccountView({
   }
 
   return (
-    <main>
-      <h1>Account &amp; passkeys</h1>
-      <Space style={{ marginBottom: 16 }}>
-        <Link href="/" data-testid="home-link">
-          Back to home
-        </Link>
-        <LogoutButton />
-      </Space>
+    <AppShell user={user}>
+      <main>
+        <h1>Account &amp; passkeys</h1>
 
-      {error && (
-        <Alert
-          data-testid="account-error"
-          type="error"
-          showIcon
-          title={error}
-          style={{ marginBottom: 16 }}
-        />
-      )}
+        {error && (
+          <Alert
+            data-testid="account-error"
+            type="error"
+            showIcon
+            title={error}
+            style={{ marginBottom: 16 }}
+          />
+        )}
 
-      <Card title="Profile" data-testid="account-view" style={{ marginBottom: 16 }}>
-        <Form
-          layout="vertical"
-          requiredMark={false}
-          initialValues={{ email: user.email, display_name: user.display_name }}
-          onFinish={onSaveProfile}
-        >
-          <Form.Item
-            label="Email"
-            name="email"
-            rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
+        <Card title="Profile" data-testid="account-view" style={{ marginBottom: 16 }}>
+          <Form
+            layout="vertical"
+            requiredMark={false}
+            initialValues={{ email: user.email, display_name: user.display_name }}
+            onFinish={onSaveProfile}
           >
-            <Input data-testid="account-email" />
-          </Form.Item>
-          <Form.Item
-            label="Display name"
-            name="display_name"
-            rules={[{ required: true, message: "Enter a display name" }]}
-          >
-            <Input data-testid="account-display-name" />
-          </Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            data-testid="account-save"
-          >
-            Save
-          </Button>
-        </Form>
-      </Card>
-
-      <Card
-        title="Passkeys"
-        extra={
-          <Button data-testid="add-passkey-button" onClick={() => setAddOpen(true)}>
-            Add a passkey
-          </Button>
-        }
-      >
-        <List
-          dataSource={credentials}
-          locale={{ emptyText: "No passkeys" }}
-          renderItem={(cred) => (
-            <List.Item
-              data-testid={`credential-${cred.id}`}
-              actions={[
-                <Button
-                  key="remove"
-                  danger
-                  size="small"
-                  loading={loading}
-                  disabled={credentials.length <= 1}
-                  data-testid={`credential-${cred.id}-remove`}
-                  onClick={() => onRemove(cred.id)}
-                >
-                  Remove
-                </Button>,
-              ]}
+            <Form.Item
+              label="Email"
+              name="email"
+              rules={[{ required: true, type: "email", message: "Enter a valid email" }]}
             >
-              <List.Item.Meta title={cred.name} description={describeCredential(cred)} />
-            </List.Item>
-          )}
-        />
-      </Card>
+              <Input data-testid="account-email" />
+            </Form.Item>
+            <Form.Item
+              label="Display name"
+              name="display_name"
+              rules={[{ required: true, message: "Enter a display name" }]}
+            >
+              <Input data-testid="account-display-name" />
+            </Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              data-testid="account-save"
+            >
+              Save
+            </Button>
+          </Form>
+        </Card>
 
-      <Modal
-        open={addOpen}
-        title="Name this passkey"
-        okText="Continue"
-        okButtonProps={{ loading }}
-        onOk={onAddPasskey}
-        onCancel={() => setAddOpen(false)}
-      >
-        <Typography.Paragraph type="secondary">
-          Your browser will then prompt you to create a passkey on this device.
-        </Typography.Paragraph>
-        <Input
-          data-testid="add-passkey-name"
-          placeholder="e.g. Work laptop"
-          value={passkeyName}
-          onChange={(event) => setPasskeyName(event.target.value)}
-          onPressEnter={onAddPasskey}
-        />
-      </Modal>
-    </main>
+        <Card
+          title="Passkeys"
+          extra={
+            <Button data-testid="add-passkey-button" onClick={() => setAddOpen(true)}>
+              Add a passkey
+            </Button>
+          }
+        >
+          <List
+            dataSource={credentials}
+            locale={{ emptyText: "No passkeys" }}
+            renderItem={(cred) => (
+              <List.Item
+                data-testid={`credential-${cred.id}`}
+                actions={[
+                  <Button
+                    key="remove"
+                    danger
+                    size="small"
+                    loading={loading}
+                    disabled={credentials.length <= 1}
+                    data-testid={`credential-${cred.id}-remove`}
+                    onClick={() => onRemove(cred.id)}
+                  >
+                    Remove
+                  </Button>,
+                ]}
+              >
+                <List.Item.Meta title={cred.name} description={describeCredential(cred)} />
+              </List.Item>
+            )}
+          />
+        </Card>
+
+        <div style={{ marginTop: 16 }}>
+          <HealthCard initial={health} />
+        </div>
+
+        <Modal
+          open={addOpen}
+          title="Name this passkey"
+          okText="Continue"
+          okButtonProps={{ loading }}
+          onOk={onAddPasskey}
+          onCancel={() => setAddOpen(false)}
+        >
+          <Typography.Paragraph type="secondary">
+            Your browser will then prompt you to create a passkey on this device.
+          </Typography.Paragraph>
+          <Input
+            data-testid="add-passkey-name"
+            placeholder="e.g. Work laptop"
+            value={passkeyName}
+            onChange={(event) => setPasskeyName(event.target.value)}
+            onPressEnter={onAddPasskey}
+          />
+        </Modal>
+      </main>
+    </AppShell>
   );
 }

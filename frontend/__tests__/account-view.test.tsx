@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CredentialSummary } from "@/lib/auth";
+import type { HealthResult } from "@/lib/health";
 
 const { refresh, updateAccount, addPasskey, removeCredential } = vi.hoisted(() => ({
   refresh: vi.fn(),
@@ -9,12 +10,24 @@ const { refresh, updateAccount, addPasskey, removeCredential } = vi.hoisted(() =
   removeCredential: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh }),
+  usePathname: () => "/account",
+}));
 vi.mock("@/lib/auth", () => ({ updateAccount, addPasskey, removeCredential }));
 
 import { AccountView } from "@/app/account/account-view";
 
 const user = { id: "u1", email: "ada@example.com", display_name: "Ada" };
+const health: HealthResult = { ok: true, data: { status: "ok", services: [] } };
+
+function renderAccountView(
+  props: Partial<Parameters<typeof AccountView>[0]> & {
+    credentials: CredentialSummary[];
+  },
+) {
+  return render(<AccountView user={user} health={health} {...props} />);
+}
 
 function credential(overrides: Partial<CredentialSummary> = {}): CredentialSummary {
   return {
@@ -35,7 +48,7 @@ afterEach(() => {
 describe("AccountView", () => {
   it("saves profile edits", async () => {
     updateAccount.mockResolvedValue({ ok: true, data: user });
-    render(<AccountView user={user} credentials={[credential()]} />);
+    renderAccountView({ credentials: [credential()] });
 
     fireEvent.change(screen.getByTestId("account-display-name"), {
       target: { value: "Ada L" },
@@ -52,18 +65,15 @@ describe("AccountView", () => {
   });
 
   it("disables Remove when only one passkey remains", () => {
-    render(<AccountView user={user} credentials={[credential()]} />);
+    renderAccountView({ credentials: [credential()] });
     expect(screen.getByTestId("credential-c1-remove")).toBeDisabled();
   });
 
   it("removes a passkey when more than one exists", async () => {
     removeCredential.mockResolvedValue({ ok: true });
-    render(
-      <AccountView
-        user={user}
-        credentials={[credential(), credential({ id: "c2", name: "Phone" })]}
-      />,
-    );
+    renderAccountView({
+      credentials: [credential(), credential({ id: "c2", name: "Phone" })],
+    });
 
     const remove = screen.getByTestId("credential-c2-remove");
     expect(remove).not.toBeDisabled();
@@ -74,12 +84,7 @@ describe("AccountView", () => {
 
   it("shows an error when a passkey cannot be removed", async () => {
     removeCredential.mockResolvedValue({ ok: false, error: "You must keep at least one passkey" });
-    render(
-      <AccountView
-        user={user}
-        credentials={[credential(), credential({ id: "c2" })]}
-      />,
-    );
+    renderAccountView({ credentials: [credential(), credential({ id: "c2" })] });
 
     fireEvent.click(screen.getByTestId("credential-c2-remove"));
 
@@ -90,7 +95,7 @@ describe("AccountView", () => {
 
   it("adds a named passkey through the modal", async () => {
     addPasskey.mockResolvedValue({ ok: true, data: credential({ id: "c9", name: "Work" }) });
-    render(<AccountView user={user} credentials={[credential()]} />);
+    renderAccountView({ credentials: [credential()] });
 
     fireEvent.click(screen.getByTestId("add-passkey-button"));
     fireEvent.change(await screen.findByTestId("add-passkey-name"), {

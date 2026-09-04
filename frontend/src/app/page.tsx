@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { HealthCard } from "./health-card";
 import { LogoutButton } from "./logout-button";
-import { fetchHealthFromServer } from "@/lib/health";
 import { currentUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +8,6 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const user = await currentUser();
   if (!user) redirect("/login");
-
-  const initial = await fetchHealthFromServer();
 
   return (
     <main>
@@ -30,7 +26,6 @@ export default async function Home() {
         </Link>
       </p>
       <LogoutButton />
-      <HealthCard initial={initial} />
     </main>
   );
 }

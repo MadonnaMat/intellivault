@@ -20,7 +20,10 @@ const {
   deleteRelationship: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), refresh }),
+  usePathname: () => "/graph",
+}));
 vi.mock("@/lib/graph", () => ({
   createEntity,
   createRelationship,
