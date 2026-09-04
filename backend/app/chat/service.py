@@ -114,7 +114,11 @@ async def run_callback(
 
     controller.state["messages"].append(assistant_message)
 
-    reply_history = [{"role": "system", "content": system}, *_flatten(controller.state["messages"])]
+    # Built from `history` (pre-placeholder), not controller.state["messages"] —
+    # a trailing *empty* assistant turn in the sent history confuses some
+    # models' chat templates into emitting literal <think> tags even with
+    # think=False (reproduced directly against Ollama's /api/chat).
+    reply_history = [{"role": "system", "content": system}, *_flatten(history)]
     if tool_note is not None:
         reply_history.append({"role": "tool", "content": tool_note})
 
