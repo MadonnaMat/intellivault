@@ -68,11 +68,11 @@ class Settings(BaseSettings):
     agent_fetch_max_redirects: int = 3
     agent_fetch_max_bytes: int = 2_000_000
     agent_source_char_limit: int = 12_000
-    # A bot User-Agent gets 403'd by Wikipedia / Fandom / many news sites, which
-    # starves the analysis of real sources — send a browser-like one.
+    # Wikimedia (and others) 403 both an obvious bot UA *and* a generic browser
+    # string — their policy (w.wiki/4wJS) wants a descriptive UA with a contact
+    # URL. Override per deployment with a real contact.
     agent_fetch_user_agent: str = (
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        "IntelliVault-Agent/0.1 (+https://github.com/MadonnaMat/intellivault) python-httpx"
     )
     # The web-search MCP server (SearXNG, streamable-HTTP). Named *_search_* so
     # each MCP server gets its own setting. Native dev points at a locally-run

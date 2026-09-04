@@ -43,9 +43,10 @@ class SsrfError(ValueError):
 def build_http_client(settings: Settings) -> httpx.AsyncClient:
     """The worker's outbound client for source fetches — redirects handled by us.
 
-    A browser-like User-Agent by default: Wikipedia, Fandom/Cloudflare and many
-    news sites return 403 to an obvious bot UA, which starved the analysis of
-    real sources.
+    The default User-Agent is descriptive with a contact URL (Wikimedia's policy
+    — a plain bot name *or* a fake browser string both get 403'd, which starved
+    the analysis of real sources). Cloudflare-fronted sites may still block a
+    datacenter IP regardless.
     """
     return httpx.AsyncClient(
         follow_redirects=False,
