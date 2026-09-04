@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -201,3 +202,50 @@ async def test_load_parked_parses_drafts_and_partial_result() -> None:
 async def test_load_parked_tolerates_a_missing_row() -> None:
     parked = await service.load_parked(as_pool(FakePool(fetchrow=None)), uuid4())
     assert parked.drafts.entities == [] and parked.partial is None
+
+
+async def test_stream_run_emits_one_event_per_change_then_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.agent.service.asyncio.sleep", instant_sleep)
+
+    t0 = datetime(2026, 9, 3, tzinfo=UTC)
+    t1 = datetime(2026, 9, 3, 0, 0, 1, tzinfo=UTC)
+    rows = [
+        make_run_row(status="running", updated_at=t0),  # first poll: always emits
+        make_run_row(status="running", updated_at=t0),  # unchanged: no event
+        make_run_row(status="succeeded", updated_at=t1),  # changed + terminal: emits, then stops
+    ]
+    pool = FakePool(fetchrow=rows)
+
+    chunks = [chunk async for chunk in service.stream_run(as_pool(pool), uuid4(), uuid4())]
+
+    status_events = [c for c in chunks if c.startswith(b"event: status")]
+    assert len(status_events) == 2
+    assert b'"status": "running"' in status_events[0]
+    assert b'"status": "succeeded"' in status_events[1]
+    # Exactly 3 polls happened (one per scripted row) and then the generator
+    # returned on its own — nothing left in the FakePool's queue.
+    assert len(pool.calls) == 3
+
+
+async def test_stream_run_stops_on_the_first_awaiting_review() -> None:
+    row = make_run_row(status="awaiting_review")
+    pool = FakePool(fetchrow=row)
+
+    chunks = [chunk async for chunk in service.stream_run(as_pool(pool), uuid4(), uuid4())]
+
+    assert len(chunks) == 1
+    assert len(pool.calls) == 1
+
+
+async def test_stream_run_propagates_404_for_a_missing_run() -> None:
+    pool = FakePool(fetchrow=None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        async for _ in service.stream_run(as_pool(pool), uuid4(), uuid4()):
+            pass
+    assert exc_info.value.status_code == 404

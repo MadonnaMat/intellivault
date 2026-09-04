@@ -12,6 +12,7 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, status
+from fastapi.responses import StreamingResponse
 
 from app.agent import service
 from app.agent.schemas import AgentRun, AgentRunCreate, AgentRunReview, AgentRunSummary
@@ -40,6 +41,18 @@ async def list_runs(pool: Pool, user: CurrentUser) -> list[AgentRunSummary]:
 @router.get("/runs/{run_id}")
 async def get_run(run_id: UUID, pool: Pool, user: CurrentUser) -> AgentRun:
     return await service.get_run(pool, user.id, run_id)
+
+
+@router.get("/runs/{run_id}/stream")
+async def stream_run(run_id: UUID, pool: Pool, user: CurrentUser) -> StreamingResponse:
+    # Confirms the run exists/is the caller's *before* the streaming response
+    # commits to a 200 — see service.stream_run's docstring.
+    await service.get_run(pool, user.id, run_id)
+    return StreamingResponse(
+        service.stream_run(pool, user.id, run_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/runs/{run_id}/review")
